@@ -31,7 +31,8 @@ DEX，`reconstruction_failures=0`。修复 APK 已通过受限内存构建并临
 
 完整基线 OTA 仍保留原记录；为避免再次触发主机全局 OOM，修复已另外封装为
 只替换 `system_ext.new.dat.br` 的 system_ext-only OTA。该包已完成签名和数据校验，
-尚未刷入手机；当前设备依靠 `/data/app` 更新运行。
+并已在同一台 Redmi 9A 上无清数据 sideload、开机验证；当前系统分区中的 Manager
+已是修复版。
 
 crDroid 官方设备页：<https://crdroid.net/blossom/12>
 

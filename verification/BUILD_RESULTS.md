@@ -24,9 +24,10 @@ APK is:
 | `R0DUMPManager.apk` | 50,704,752 | `d0b6c4eecca66fff06983bfa9a40492d1aae493bb7c6029897ecfdf16fe170f5` |
 
 It was installed with `adb install -r -d` and exercised on the Redmi 9A. The
-system partition still contains the previous APK (`eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48`),
-so a factory reset would remove the data-app overlay. A system_ext-only OTA was
-created to make the fix persistent.
+system partition initially contained the previous APK
+(`eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48`), so a
+factory reset would initially have removed the data-app overlay. The
+system_ext-only OTA below was then used to make the fix persistent.
 
 ## System_ext-only repair OTA
 
@@ -47,8 +48,9 @@ Checks performed:
 - `system_ext.transfer.list` hash matches the baseline list;
 - no full Soong rebuild was required for this packaging step.
 
-The repair OTA has not yet been sideloaded; the phone is booted and currently
-uses the fixed APK as a `/data/app` update.
+The repair OTA was sideloaded with `adb sideload` without formatting data. The
+phone rebooted successfully and `/system_ext/priv-app/R0DUMPManager/R0DUMPManager.apk`
+now hashes to `d0b6c4eecca66fff06983bfa9a40492d1aae493bb7c6029897ecfdf16fe170f5`.
 
 ## Device smoke
 
@@ -59,7 +61,8 @@ uses the fixed APK as a `/data/app` update.
 - `ro.crdroid.device=blossom`
 - `ro.product.device=dandelion`
 - `ro.boot.verifiedbootstate=green`, `ro.boot.flash.locked=1`
-- `su`: absent on the clean baseline boot
+- `su`: absent on the clean baseline boot and after the repair OTA
+- Data was preserved; the existing `/data/app` update remained installed
 
 ### Calculator baseline
 
