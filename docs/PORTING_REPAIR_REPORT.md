@@ -2,8 +2,23 @@
 
 日期：2026-08-12
 
-> 本页同时保留早期闭环记录。2026-08-11 晚间追加的回归修复已完成整包构建；
-> 最终 ZIP 已离线校验，设备端 sideload/启动结果在 recovery 菜单完成后追加。
+> 本页同时保留早期完整 ROM 闭环记录。2026-08-12 追加的 Manager 启动交接修复
+> 已完成受限内存模块构建、真机安装和 App Cloner 回归；随后生成了只改
+> `system_ext` 的整包修复 OTA。修复 OTA 已通过整包签名、ZIP 和分区数据校验，
+> 但尚未再次 sideload；当前手机仍使用已验证的 `/data/app` 临时覆盖。
+
+## 当前进度（2026-08-12）
+
+- **手机：已开机并可用**，`sys.boot_completed=1`，不是 recovery 卡死状态。
+- **本次 Manager 修复：已验证**。App Cloner 可进入 `MainActivity`，7 个 DEX
+  已导出，`reconstruction_failures=0`；结束状态为 `stopped/class_walk_timeout`，
+  这是达到 class-walk 时间上限后的正常收口，不是“仍在运行”。
+- **系统分区固化：已生成包，尚未刷入**。修复包只替换 `system_ext.new.dat.br`，
+  保持原 `system_ext.transfer.list`、其它分区、动态分区布局和 OTA 元数据不变。
+- **剩余工作：**选择是否把修复 OTA sideload 到手机；刷入后再做一次开机和
+  Manager/App Cloner 快速复核。当前没有后台编译任务。
+- **耗时原因：**完整 Soong 图有约 2,848 个脏任务，主机曾发生全局 OOM；本次
+  改用已完成的基包和单分区块 OTA，避免再次整包编译。
 
 ## 追加修复记录（2026-08-11 晚间）
 
@@ -42,10 +57,11 @@ R0DUMP 已经移植到 Redmi 9A (`M2006C3LI`) 的 crDroid 12.11 / Android 16
 | 构建目标 | `lineage_blossom-trunk_staging-userdebug`，Android 16 / SDK 36 |
 | R0DUMP 集成 | ART + libcore + framework + Manager，ARM32/ARM64 |
 | 策略接入 | 32/32 个策略位已接入构建和运行时 |
-| 最终 OTA | 已成功构建，`unzip -t` 通过，VINTF `COMPATIBLE` |
+| 基线 OTA | 已成功构建，`unzip -t` 通过，VINTF `COMPATIBLE` |
+| Manager 修复 OTA | 已生成，整包签名、`unzip -t` 和 `system_ext` 逐字节校验通过；尚未刷入 |
 | 真机启动 | 通过，`sys.boot_completed=1` |
-| 真机 DUMP | 通过，计算器导出 3 个 DEX/DEX 041 容器和 1 份 method records |
-| 自动终止 | 通过，`phase=complete`，UI 流程自动把总开关清为 0 |
+| 真机 DUMP | 计算器基线闭环通过；App Cloner 回归导出 7 个 DEX/DEX 041 容器 |
+| 自动终止 | 计算器为 `complete`；App Cloner 为 `stopped/class_walk_timeout`，均已关闭运行时 |
 | 修复 ZIP | 通过，3/3 DEX 修复，ZIP 和 Android 16 `dexdump` 均通过 |
 | MTK Thermal HAL | 已修复，HAL 2.0 连接且 PID 稳定 |
 | MTK IMS | 已修复类可见性和绑定，PID 稳定 |
@@ -135,6 +151,22 @@ crDroid 的构建产品名仍是 `lineage_blossom`，因为 crDroid 继承 Linea
 - 真机 UI 流程中，20 秒上限到达后写入 `complete`，Manager 自动扫描并把
   `r0dump.dump.enabled` 从 1 清为 0。
 
+### 4.1.1 App Cloner 启动交接回归
+
+选择 `com.applisto.appcloner` 时，Manager 原先在发出第一个启动请求后立即
+`finish()`；该应用会延迟把控制权交给 `MainActivity`，于是 Android 的后台启动
+限制可能让第二次启动被拒绝。修复包括：
+
+- 启动前预创建目标 App 的外部输出根目录；
+- 自动化启动完成后保留 20 秒 hand-off grace，再退出 Manager；
+- 目录创建失败写入明确日志，不把失败伪装成 dump 成功。
+
+2026-08-12 真机结果：App Cloner 正常显示 `MainActivity`，没有出现
+`Background activity launch blocked`；批次 `1786478797209-70f476c2` 写出 7 个
+DEX、2 条 method records，`reconstruction_failures=0`。`status.json` 最终为
+`phase=stopped`、`stop_reason=class_walk_timeout`、`runtime_enabled=false`。
+622 个非标准 DEX method 被按设计跳过，属于样本内容统计，不是重建失败。
+
 ### 4.2 MTK Thermal HAL 循环崩溃
 
 原问题是 32/64 位 Thermal HAL 实现 blob 直接链接 Android 16 的 `libutils.so` 和
@@ -209,6 +241,8 @@ ROM 重新合并和测试。
 
 ## 6. 真机 DUMP / Repair 证据
 
+### 6.1 计算器基线闭环
+
 测试目标：系统计算器 `com.android.calculator2`，主进程模式，全局、raw mirror 和
 force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 
@@ -226,6 +260,23 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 - 最终设置已恢复为：总开关 0、全局 0、force backfill 0、raw mirror 0、
   无目标包。
 
+### 6.2 App Cloner 回归
+
+目标：`com.applisto.appcloner`，默认 `0x87` 策略、`main_only`，全局和高风险
+策略关闭。批次目录为：
+
+`1786478797209-70f476c2/com.applisto.appcloner`
+
+- `MainActivity` 已显示，启动交接没有被系统拒绝；
+- `dex_files_written=7`，`method_records_written=2`；
+- `reconstruction_failures=0`，`fixed_dex_files_written=0`（本次只做 DUMP 回归）；
+- `nonstandard_dex_methods_skipped=622`，说明样本包含非标准方法形态，当前实现
+  会记录并跳过，不能把它误读成 CompactDex 全量转换已完成；
+- 最终 `phase=stopped`、`stop_reason=class_walk_timeout`、`runtime_enabled=false`。
+
+回归结束后已关闭 `r0dump.dump.enabled` 和 `r0dump.dump.global_runtime_enabled`，
+并 force-stop 目标 App。
+
 ## 7. 最终构建与产物
 
 源码根目录：`<android-source>/crdroid-16`
@@ -240,7 +291,7 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 | `boot.img` | 67,108,864 | `5f8659835b313f95af1b35b356776fa304a3d12a92ee614be2f7f8fb0b63d8bd` |
 | `recovery.img` | 67,108,864 | `efa079b132b6def5b9b239f3cc1629b602e4ff3fb23deef6e63a328db5adaa3f` |
 | `system.img` | 1,487,642,624 | `fe012916c0fc92a69d34be932b05183b74a0ae488bb19916e06c4a085bd348d5` |
-| `system_ext.img` | 1,076,813,824 | `e52aab2f94a06e1d5392ef3a59b2f4174bcc374f1c77fa84bfffe54797828ad0` |
+| `system_ext.img` | 1,076,817,920 | `e52aab2f94a06e1d5392ef3a59b2f4174bcc374f1c77fa84bfffe54797828ad0` |
 | `product.img` | 730,292,224 | `5e785cb71968c6cbc40d138f206e5e79d9f0d53f6639020f0ea7451ab911b0db` |
 | `odm.img` | 1,593,344 | `aee4b4832386fc190d7fe2053c7f90abb5e4a322bdb4457e62c1d94ff23cf3b5` |
 | `vendor.img` | 577,495,040 | `1397ca93c24432140d969c68aed4c1513fbe7e1d88204a0259f04d3e1f895148` |
@@ -248,6 +299,21 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 | `vbmeta_system.img` | 65,536 | `23ec72aac5791b81dff6c63c2f373931dd8c91ae4fde748056086f122e17cc95` |
 | `vbmeta_vendor.img` | 65,536 | `d3bb899b5dc0b7e23f48039e95a00e49f0adf9cf315e3d5fdcdcce70dd45f01f` |
 | `R0DUMPManager.apk` | 50,700,656 | `eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48` |
+
+### 7.1 本次 Manager 修复产物
+
+以下产物来自已验证的基线 OTA：只在原始 `system_ext` raw image 中替换
+`priv-app/R0DUMPManager/R0DUMPManager.apk`，再重新压缩 `system_ext.new.dat.br`
+并对整包做 whole-file 签名。没有重新生成其它分区。
+
+| 产物 | 大小（字节） | SHA-256 |
+| --- | ---: | --- |
+| `R0DUMPManager.apk`（修复后） | 50,704,752 | `d0b6c4eecca66fff06983bfa9a40492d1aae493bb7c6029897ecfdf16fe170f5` |
+| `system_ext` raw（修复后） | 1,076,817,920 | `88af07d512613e0ae275787934b1bcb528a8d3b3caa2d21a8ee210eba2ef611a` |
+| `crDroidAndroid-16.0-20260812-blossom-v12.11-manager-fix.zip` | 1,407,734,167 | `eafe15270863cc61abb55f2c6b20188cd9aee501344830dc20e6646992846eef` |
+
+修复包签名由 `check_ota_package_signature` 验证通过，包内分区数据解压后与
+`system_ext` raw SHA-256 相同。该 ZIP 位于源码仓库之外，未提交二进制或密钥。
 
 关键中间产物：
 
@@ -260,15 +326,20 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 
 ## 8. 已执行验证
 
-- 完整系统构建和最终 OTA 构建均成功。
-- `unzip -t` 校验最终 OTA 全部条目，无错误。
+- 基线完整系统构建和基线 OTA 构建成功；本次 Manager 修复 APK 在受限 cgroup
+  中构建成功。
+- 基线 OTA 与 Manager 修复 OTA 均通过 `unzip -t`；修复 OTA 另通过 whole-file
+  签名验证。
 - target-files VINTF 最终结果为 `COMPATIBLE`。
 - Boot Classpath protobuf 包含 telephony compat 和全部 7 个 MTK framework JAR。
 - Thermal service 和 32/64 位 impl 的 ELF `NEEDED` 均指向 v32 兼容库。
-- 手机活动 Manager APK 与最终本地 APK SHA-256 完全相同。
+- 手机活动 `/data/app` Manager APK 与本次修复 APK SHA-256 完全相同：
+  `d0b6c4eecca66fff06983bfa9a40492d1aae493bb7c6029897ecfdf16fe170f5`。
+- 系统分区内仍是基线 APK：`eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48`；
+  这正是待 sideload 的 system_ext-only 修复包要固化的内容。
 - Manager 所需 `WRITE_SECURE_SETTINGS`、`READ_LOGS`、`MANAGE_EXTERNAL_STORAGE`、
   `FORCE_STOP_PACKAGES` 等权限已授予。
-- IMS/Thermal 先连续观察 2 分钟，后续在 DUMP/修复/整包构建期间 PID 仍未变化。
+- IMS/Thermal 先连续观察 2 分钟，后续在 DUMP/模块构建期间 PID 仍未变化。
 - crash buffer 为空，普通 logcat 中无 `NoClassDefFoundError`、
   `ClassNotFoundException`、`VerifyError`、`FATAL EXCEPTION` 或 Thermal fatal signal。
 - 各已修改 Git 子仓的 `git diff --check` 通过。
@@ -276,11 +347,14 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 
 ## 9. 当前手机状态
 
-- 系统已开机，ADB 连接正常。
-- 当前活动 Manager 为 `/data/app` 中的同签名系统应用更新，内容与
-  最终构建 APK 相同。
-- 当前运行时与 IMS/Thermal 分区来自最终整包之前的等价增量构建；
-  最终 OTA 生成后没有再整包安装一次。
+- 系统已开机，ADB 连接正常，`sys.boot_completed=1`。
+- 当前活动 Manager 为 `/data/app` 中的同签名系统应用更新，内容与本次修复 APK
+  相同；系统分区仍保留旧 APK。恢复出厂或清除该更新后会回到旧版本，直到修复
+  OTA 被刷入。
+- 当前运行时、IMS/Thermal 和其它分区来自已验证基线 OTA；修复 OTA 生成后没有
+  再次 sideload。
+- 当前设置为 `r0dump.dump.enabled=0`、`r0dump.dump.global_runtime_enabled=0`，
+  无后台 R0DUMP 任务。
 - 当前 `su` 不存在，即当前系统没有激活 root。
 - 验证时的 patched boot 仅保存在本地私有备份，未放入公开仓库。
 - 最终 OTA 包含未 root 的 `boot.img`；安装 OTA 会覆盖 root boot，需在 OTA 之后
@@ -290,9 +364,9 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 
 ## 10. 已知限制与剩余风险
 
-1. **最终 OTA 尚未再次整包安装**：最终 ZIP 已通过离线完整性和 VINTF 验证；
-   当前设备停在 recovery 主菜单，等待一次 `Apply from ADB` 选择后再记录刷入和
-   post-boot 结果。此前等价核心分区的运行闭环仍保留在上文。
+1. **修复 OTA 尚未再次安装**：修复 ZIP 已通过离线完整性、whole-file 签名和
+   `system_ext` 逐字节校验；手机目前靠 `/data/app` 覆盖运行。刷入修复 ZIP 后
+   仍需做一次不清数据的开机复核，确认系统分区中的 Manager 版本。
 2. **使用测试密钥**：本地 userdebug OTA 使用 Android testkey/AVB test key，不是生产
    私钥发布包；顶层 vbmeta flags 为 3，适合解锁后的研发机，不是安全发行配置。
 3. **安全补丁偏旧**：构建中声明的 SPL 为 `2025-11-05`，相对当前日期已滞后。

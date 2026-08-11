@@ -23,6 +23,16 @@ R0DUMP 在 Redmi 9A (`M2006C3LI` / `dandelion`) 的 crDroid 12.11 / Android 16
 | DEX | 3/3 个 DEX/DEX 041 修复结果通过 Android 16 `dexdump` |
 | MTK | Thermal HAL 2.0 稳定，IMS 类加载与 Binder 绑定稳定 |
 
+### 最新回归修复
+
+Manager 的自动化启动交接已增加目标输出目录预创建和 20 秒 hand-off grace。
+在 Redmi 9A 上用 App Cloner 回归时，`MainActivity` 可以正常打开，写出 7 个
+DEX，`reconstruction_failures=0`。修复 APK 已通过受限内存构建并临时安装验证。
+
+完整基线 OTA 仍保留原记录；为避免再次触发主机全局 OOM，修复已另外封装为
+只替换 `system_ext.new.dat.br` 的 system_ext-only OTA。该包已完成签名和数据校验，
+尚未刷入手机；当前设备依靠 `/data/app` 更新运行。
+
 crDroid 官方设备页：<https://crdroid.net/blossom/12>
 
 ## 仓库内容
@@ -88,7 +98,8 @@ ANDROID_ROOT="$PWD" ../r0dump-redmi9a-crdroid16/scripts/build-full-ota.sh
 `MemoryMax=24G`、`MemorySwapMax=0G`。普通 dex/R8/D8 堆限制为 `2048M`，
 `Launcher3QuickStep` 单独使用 `3072M`；OTA 临时文件写入工作盘上的
 `out/r0dump-tmp`，不会占满小容量 `/tmp`。
-详细说明见 [docs/BUILD.md](docs/BUILD.md)。
+详细说明见 [docs/BUILD.md](docs/BUILD.md)。如果只改 Manager，优先使用缓存模块
+构建或 system_ext-only 封装，不要强制让整个 Soong 图重新变脏。
 
 ## 重要区分
 

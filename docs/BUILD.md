@@ -44,6 +44,10 @@ base commit，不会修改 Android 工作树。
 这样 OTA 的 8 GiB 级目标文件不会写满小容量 `/tmp`。`systemd-run
 --user --scope` 保证整个构建进程树都在同一个 cgroup 内存上限下。
 
+如果临时文件系统是 Btrfs，`df -i` 可能返回 `-` 而不是 inode 百分比；资源
+检查脚本会显示 `n/a inodes used`，继续执行文件数、空间、内存和 swap 检查，
+不会把文件系统类型误判成构建错误。
+
 普通任务仍使用 `-j4`。D8/R8 进入深度为 2 的 highmem pool；只有实测需要
 更大堆的 `Launcher3QuickStep` 使用 3072M，其余 dexer 使用 2048M。
 
@@ -67,6 +71,10 @@ scripts/build-full-ota.sh
 
 不应把 `BUILD_MEMORY_MAX` 设置得接近物理内存总量，系统、ADB 和页缓存仍
 需要空间。
+
+主机全局内存压力可能在 Soong 启动阶段触发 OOM，即使构建 cgroup 本身没有
+`oom_kill`。遇到这种情况先使用缓存模块构建；只改 Manager 时不需要让整个
+Soong 图重新编译。
 
 ## 仅构建 R0DUMP 核心模块
 

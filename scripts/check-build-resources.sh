@@ -35,8 +35,28 @@ done
 tmp_files="$({ find "$TMP_PATH" -xdev -type f 2>/dev/null || true; } | wc -l)"
 tmp_stats="$(df -Pk "$TMP_PATH" | awk 'NR == 2 {gsub(/%/, "", $5); print $4, $5}')"
 read -r tmp_free_kib tmp_used_percent <<<"$tmp_stats"
-tmp_inode_stats="$(df -Pik "$TMP_PATH" | awk 'NR == 2 {gsub(/%/, "", $5); print $4, $5}')"
-read -r tmp_free_inodes tmp_inode_used_percent <<<"$tmp_inode_stats"
+tmp_inode_stats="$(df -Pik "$TMP_PATH" | awk '
+  NR == 2 {
+    if ($5 == "-" || $5 == "") {
+      print "unsupported"
+    } else {
+      gsub(/%/, "", $5)
+      print $4, $5
+    }
+  }')"
+tmp_inode_check_supported=1
+if [[ "$tmp_inode_stats" == unsupported ]]; then
+  # Btrfs and some virtual filesystems do not expose inode accounting.  The
+  # file-count and space checks still apply; there is no meaningful inode
+  # threshold to enforce in this case.
+  tmp_inode_check_supported=0
+  tmp_free_inodes=0
+  tmp_inode_used_percent=0
+  tmp_inode_display="n/a"
+else
+  read -r tmp_free_inodes tmp_inode_used_percent <<<"$tmp_inode_stats"
+  tmp_inode_display="${tmp_inode_used_percent}%"
+fi
 
 mem_available_kib="$(awk '/^MemAvailable:/ {print $2; exit}' /proc/meminfo)"
 swap_total_kib="$(awk '/^SwapTotal:/ {print $2; exit}' /proc/meminfo)"
@@ -45,8 +65,10 @@ swap_free_kib="$(awk '/^SwapFree:/ {print $2; exit}' /proc/meminfo)"
 is_uint "$tmp_files" || die "could not count files under $TMP_PATH"
 is_uint "$tmp_free_kib" || die "could not read free space for $TMP_PATH"
 is_uint "$tmp_used_percent" || die "could not read space usage for $TMP_PATH"
-is_uint "$tmp_free_inodes" || die "could not read inode usage for $TMP_PATH"
-is_uint "$tmp_inode_used_percent" || die "could not read inode usage for $TMP_PATH"
+if (( tmp_inode_check_supported )); then
+  is_uint "$tmp_free_inodes" || die "could not read inode usage for $TMP_PATH"
+  is_uint "$tmp_inode_used_percent" || die "could not read inode usage for $TMP_PATH"
+fi
 is_uint "$mem_available_kib" || die "could not read MemAvailable"
 is_uint "$swap_total_kib" || die "could not read SwapTotal"
 is_uint "$swap_free_kib" || die "could not read SwapFree"
@@ -55,8 +77,9 @@ tmp_free_mib=$((tmp_free_kib / 1024))
 mem_available_mib=$((mem_available_kib / 1024))
 swap_free_mib=$((swap_free_kib / 1024))
 
-printf 'resource check: tmp=%s files, %s MiB free, %s%% used, %s%% inodes used\n' \
-  "$tmp_files" "$tmp_free_mib" "$tmp_used_percent" "$tmp_inode_used_percent"
+printf 'resource check: tmp=%s files, %s MiB free, %s%% used, %s inodes used\n' \
+  "$tmp_files" "$tmp_free_mib" "$tmp_used_percent" \
+  "$tmp_inode_display"
 printf 'resource check: MemAvailable=%s MiB, SwapFree=%s MiB, max_jobs=%s\n' \
   "$mem_available_mib" "$swap_free_mib" "$MAX_BUILD_JOBS"
 
@@ -66,8 +89,10 @@ printf 'resource check: MemAvailable=%s MiB, SwapFree=%s MiB, max_jobs=%s\n' \
   "temporary filesystem is too full ($tmp_used_percent% > $MAX_TMP_USED_PERCENT%)"
 (( tmp_free_mib >= MIN_TMP_FREE_MIB )) || die \
   "not enough free temporary space (${tmp_free_mib}MiB < ${MIN_TMP_FREE_MIB}MiB)"
-(( tmp_inode_used_percent <= MAX_TMP_USED_PERCENT )) || die \
-  "temporary filesystem has too few free inodes ($tmp_inode_used_percent% used)"
+if (( tmp_inode_check_supported )); then
+  (( tmp_inode_used_percent <= MAX_TMP_USED_PERCENT )) || die \
+    "temporary filesystem has too few free inodes ($tmp_inode_used_percent% used)"
+fi
 (( mem_available_mib >= MIN_MEM_AVAILABLE_MIB )) || die \
   "not enough available memory (${mem_available_mib}MiB < ${MIN_MEM_AVAILABLE_MIB}MiB)"
 

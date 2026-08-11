@@ -109,6 +109,10 @@ public class MainActivity extends ComponentActivity {
     private static final String AUTOMATION_ACTION_STOP = "stop";
     private static final String AUTOMATION_ACTION_SCAN = "scan";
     private static final String AUTOMATION_ACTION_REPAIR = "repair";
+    // Some launcher activities perform a delayed hand-off to a second activity. Keep the
+    // manager alive during that hand-off so Android's background-activity-start guard does not
+    // reject the second launch (App Cloner is one example).
+    private static final long AUTOMATION_TARGET_HANDOFF_GRACE_MS = 20000L;
 
     public static final int STRATEGY_CLASS_WALK = 1 << 0;
     public static final int STRATEGY_APP_CREATE = 1 << 1;
@@ -1403,6 +1407,7 @@ public class MainActivity extends ComponentActivity {
             boolean launchPosted = false;
             try {
                 applyUiConfig(startConfig);
+                prepareTargetOutputDirectory(launchPkg);
                 String runId = System.currentTimeMillis() + "-"
                         + UUID.randomUUID().toString().substring(0, 8);
                 mActiveRunId = runId;
@@ -1436,7 +1441,7 @@ public class MainActivity extends ComponentActivity {
                                     + " launch=" + launched);
                         }
                         if (finishOnComplete) {
-                            finish();
+                            finishAfterAutomationLaunch(launchPkg);
                         }
                     } finally {
                         mStartRunning.set(false);
@@ -1463,6 +1468,15 @@ public class MainActivity extends ComponentActivity {
     private void stopDump() {
         Settings.Global.putInt(getContentResolver(), R0DUMP_SETTING_ENABLED, 0);
         log(getString(R.string.log_dump_stopped));
+    }
+
+    private void finishAfterAutomationLaunch(String packageName) {
+        mMainHandler.postDelayed(() -> {
+            if (!isFinishing()) {
+                Log.i(LOG_TAG, "automation hand-off grace elapsed package=" + packageName);
+                finish();
+            }
+        }, AUTOMATION_TARGET_HANDOFF_GRACE_MS);
     }
 
     private void launchTarget() {
@@ -2215,6 +2229,17 @@ public class MainActivity extends ComponentActivity {
         ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         am.forceStopPackage(pkg);
         log(getString(R.string.log_force_stopped, pkg));
+    }
+
+    /** Prepare the target-owned external files root before ART writes its fallback output. */
+    private void prepareTargetOutputDirectory(String pkg) {
+        if (pkg == null || pkg.isEmpty()) {
+            return;
+        }
+        File root = new File("/sdcard/Android/data/" + sanitize(pkg) + "/files/r0dump");
+        if (!root.isDirectory() && !root.mkdirs() && !root.isDirectory()) {
+            log("无法预创建目标 App 的私有输出目录: " + root);
+        }
     }
 
     private List<File> candidateOutputDirs() {

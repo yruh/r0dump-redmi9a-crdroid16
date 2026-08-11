@@ -2,44 +2,94 @@
 
 Date: 2026-08-12
 
-## Full OTA
+## Baseline full OTA
 
 - Product: `lineage_blossom-trunk_staging-userdebug`
-- Result: final `bacon` target completed with exit code 0; all build units were
-  run under a cgroup memory ceiling, with a measured peak of 19.2 GiB and no
-  `oom`/`oom_kill` events
-- VINTF: `COMPATIBLE`
-- ZIP test: all entries passed `unzip -t`
+- Result: baseline `bacon` target completed with exit code 0; VINTF was
+  `COMPATIBLE` and all ZIP entries passed `unzip -t`
 - OTA: `crDroidAndroid-16.0-20260811-blossom-v12.11.zip`
 - Size: `1,407,740,513` bytes
 - SHA-256: `25010572c73afd87ae85d8ee1aec0d4bb718aa239b0c34f6405239978cd9157f`
 
-The OTA binary is not stored in this source repository.
+The baseline OTA binary is kept outside this source repository.
 
-## Key build artifacts
+## Manager hand-off fix
+
+The change in `MainActivity.java` was built with the cached Soong graph under a
+16 GiB cgroup ceiling (`MemoryHigh=14G`, `MemoryMax=16G`, no swap). The resulting
+APK is:
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `boot.img` | 67,108,864 | `5f8659835b313f95af1b35b356776fa304a3d12a92ee614be2f7f8fb0b63d8bd` |
-| `recovery.img` | 67,108,864 | `efa079b132b6def5b9b239f3cc1629b602e4ff3fb23deef6e63a328db5adaa3f` |
-| `system.img` | 1,487,642,624 | `fe012916c0fc92a69d34be932b05183b74a0ae488bb19916e06c4a085bd348d5` |
-| `system_ext.img` | 1,076,813,824 | `e52aab2f94a06e1d5392ef3a59b2f4174bcc374f1c77fa84bfffe54797828ad0` |
-| `vendor.img` | 577,495,040 | `1397ca93c24432140d969c68aed4c1513fbe7e1d88204a0259f04d3e1f895148` |
-| `R0DUMPManager.apk` | 50,700,656 | `eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48` |
+| `R0DUMPManager.apk` | 50,704,752 | `d0b6c4eecca66fff06983bfa9a40492d1aae493bb7c6029897ecfdf16fe170f5` |
+
+It was installed with `adb install -r -d` and exercised on the Redmi 9A. The
+system partition still contains the previous APK (`eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48`),
+so a factory reset would remove the data-app overlay. A system_ext-only OTA was
+created to make the fix persistent.
+
+## System_ext-only repair OTA
+
+The repair package starts from the verified baseline OTA. It replaces only
+`system_ext.new.dat.br` with a same-size raw image containing the fixed Manager;
+the original `system_ext.transfer.list` and all other OTA entries are unchanged.
+
+| Artifact | Size | SHA-256 |
+| --- | ---: | --- |
+| Modified `system_ext` raw image | 1,076,817,920 | `88af07d512613e0ae275787934b1bcb528a8d3b3caa2d21a8ee210eba2ef611a` |
+| `crDroidAndroid-16.0-20260812-blossom-v12.11-manager-fix.zip` | 1,407,734,167 | `eafe15270863cc61abb55f2c6b20188cd9aee501344830dc20e6646992846eef` |
+
+Checks performed:
+
+- `unzip -tq`: pass;
+- `check_ota_package_signature` with the local test certificate: `VERIFIED`;
+- Brotli decompression of `system_ext.new.dat.br` matches the modified raw image;
+- `system_ext.transfer.list` hash matches the baseline list;
+- no full Soong rebuild was required for this packaging step.
+
+The repair OTA has not yet been sideloaded; the phone is booted and currently
+uses the fixed APK as a `/data/app` update.
 
 ## Device smoke
 
 - Device: Redmi 9A `M2006C3LI`, runtime codename `dandelion`
-- ROM properties: crDroid `12.11`, `ro.crdroid.device=blossom`, Android 16 / SDK 36
-- Boot: `sys.boot_completed=1`
-- Thermal HAL 2.0: connected, actual temperature/cooling data returned, stable process
-- MediaTek IMS: class loading and Binder binding stable; a SIM/VoLTE call was not part of this run
-- R0DUMP target: AOSP Calculator, `main_only`, global/force/raw mirror disabled
-- Output: 3 DEX/DEX 041 containers plus method records
-- Repair: 3/3 repaired, 472 records applied, 27 duplicates, 0 skipped
-- Repaired DEX: 3/3 parsed by Android 16 host `dexdump`
-- Manager completion: terminal `complete` state and global dump enable automatically cleared
+- ROM: crDroid `12.11`, Android 16 / SDK 36
+- `sys.boot_completed=1`
+- `ro.build.display.id=R0DUMP 16`
+- `ro.crdroid.device=blossom`
+- `ro.product.device=dandelion`
+- `ro.boot.verifiedbootstate=green`, `ro.boot.flash.locked=1`
+- `su`: absent on the clean baseline boot
 
-The final ZIP is kept outside this source repository. It has passed `unzip -t` and
-the SHA-256 check above; recovery sideload and post-boot verification are recorded
-separately because they require the device-side recovery menu.
+### Calculator baseline
+
+- Target: `com.android.calculator2`, `main_only`, default `0x87`, global/raw/
+  force-backfill disabled
+- Output: 3 DEX/DEX 041 containers and 1 method-record file
+- Repair: 3/3 repaired, 472 records applied, 27 duplicates, 0 skipped
+- Terminal state: `phase=complete`, runtime switch cleared to 0
+
+### App Cloner regression
+
+- Target: `com.applisto.appcloner`
+- MainActivity launch: displayed successfully; no background-activity-start block
+- Output: 7 DEX files, 2 method records
+- `reconstruction_failures=0`
+- `nonstandard_dex_methods_skipped=622`
+- Terminal state: `phase=stopped`, `stop_reason=class_walk_timeout`,
+  `runtime_enabled=false`
+- Post-test settings: `r0dump.dump.enabled=0`,
+  `r0dump.dump.global_runtime_enabled=0`
+
+## Known limits
+
+- The repair OTA still needs one no-wipe sideload and post-boot check to replace the
+  system-partition Manager APK.
+- The OTA uses Android test keys and is for the unlocked development device.
+- The declared security patch is `2025-11-05`.
+- 32-bit app and real SIM/VoLTE calls were not part of this smoke run.
+- High-risk/global/multi-process strategies and a complete CompactDex converter were
+  not validated; Android 16 standard DEX/DEX 041 paths are covered.
+- The host experienced global OOM when a full Soong graph was forced dirty. Future
+  builds should use the cached module path or the bounded build script; do not infer
+  a source failure from that host resource event.
