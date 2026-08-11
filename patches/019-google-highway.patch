@@ -1,0 +1,12 @@
+diff --git a/Android.bp b/Android.bp
+index 56cc9bf5fdef37c2433c058ed2ea006fe7cabba4..421822cfaaf7c7fd09f017f7071bf28e419b209d 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -18,6 +18,7 @@ license {
+ cc_library {
+     name: "libhwy",
+     host_supported: true,
++    vendor_available: true,
+     sdk_version: "current",
+     stl: "c++_shared",
+     export_include_dirs: [

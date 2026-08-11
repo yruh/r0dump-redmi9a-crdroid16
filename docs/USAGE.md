@@ -1,0 +1,62 @@
+# R0DUMP 使用说明
+
+## 默认方式
+
+1. 在 Manager 中明确选择一个 App。
+2. 进程范围保持 `main_only`。
+3. 使用默认策略组合 `0x187`。
+4. 保持全局、force backfill、raw dexdata mirror 和高频 JIT/instrumentation 关闭。
+5. 打开 `stop_after_complete`，然后点击开始。
+
+`0x187` 包含 Class walk、Application create、Activity create、InMemoryDex 和
+DefineClass。它是普通 App 的首次验证预设，不是每种样本的唯一最佳组合。
+
+## 全局与未选应用
+
+未选应用不会自动变成全局。全局 runtime 有独立明确开关，默认为关闭。
+全局模式会让多个 App 进程进入 ART hook，资源开销和输出量都更高。
+
+## 为什么有多个文件夹
+
+输出结构是：
+
+```text
+<output-root>/<package>/<run_id>/<process>/
+```
+
+多个目录通常来自：
+
+- 多次开始产生的不同 `run_id`。
+- App 自身有远程 service/webview 等多进程。
+- 历史测试输出没有清理。
+- DEX 容器、method records、`status.json` 和修复暂存是不同用途的文件。
+
+它不能单独证明全局开关被打开。
+
+## 状态判定
+
+不要用“DEX 文件已出现”判定整个任务已完成。以 `status.json` 的 `phase`
+为准：
+
+- `configured`：配置已进入目标进程。
+- `waiting_delay`：等待设定的延迟。
+- `class_walk`：主动遍历进行中。
+- `complete`：完成并已收敛。
+- `stopped_by_limit`：达到记录或时间上限。
+- `class_walk_failed`：遍历失败，需查看状态和 logcat。
+
+修复后的 Manager 不再把已进入终态的批次回退成 `dumping`，也不再因
+`onResume()` 竞态把新 `run_id` 覆盖为 `pending`。
+
+## DEX 041 与 CompactDex
+
+Android 16 正常应用路径为标准 DEX 或 DEX 041 共享容器。Manager 能保留
+DEX 041 的 entry 边界，应用 method records 后重算 SHA-1 和 Adler32。本次真机
+闭环中 `nonstandard_dex_methods_skipped=0`，因此旧 CompactDex 转换器不是当前
+端口的必要条件。
+
+## 资源上限
+
+默认上限为 50,000 条记录和 300 秒。修复扫描同时限制目录深度、文件数、
+总字节、单文件大小和符号链接。先用默认值跑通，再根据具体样本增加范围。
+

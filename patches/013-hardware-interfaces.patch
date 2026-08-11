@@ -1,0 +1,45 @@
+diff --git a/audio/common/all-versions/default/service/service.cpp b/audio/common/all-versions/default/service/service.cpp
+index 1557a9505d1ed7b2642dfa735e7460e67058113f..4989619397065ecca27747c4d81f3f11bfccfa6f 100644
+--- a/audio/common/all-versions/default/service/service.cpp
++++ b/audio/common/all-versions/default/service/service.cpp
+@@ -138,10 +138,6 @@ int main(int /* argc */, char* /* argv */ []) {
+             "android.hardware.bluetooth.audio-impl",
+             "createIBluetoothAudioProviderFactory",
+         },
+-        {
+-            "android.hardware.audio.sounddose-vendor-impl",
+-            "createISoundDoseFactory",
+-        },
+     };
+     // clang-format on
+ 
+diff --git a/biometrics/fingerprint/2.1/default/Android.bp b/biometrics/fingerprint/2.1/default/Android.bp
+index 4d5cc8d3ee40c997c17a10a641bffe8755500209..63d09d9f9ea7cbdf1f3bbb47765ebf08a1e829c4 100644
+--- a/biometrics/fingerprint/2.1/default/Android.bp
++++ b/biometrics/fingerprint/2.1/default/Android.bp
+@@ -7,8 +7,24 @@ package {
+     default_applicable_licenses: ["hardware_interfaces_license"],
+ }
+ 
+-cc_binary {
++soong_config_module_type {
++    name: "fingerprint_hidl_service",
++    module_type: "cc_binary",
++    config_namespace: "fingerprint_hidl",
++    bool_variables: ["use_vendor_fingerprint_service"],
++    properties: ["enabled"],
++}
++
++fingerprint_hidl_service {
+     name: "android.hardware.biometrics.fingerprint@2.1-service",
++    soong_config_variables: {
++        use_vendor_fingerprint_service: {
++            enabled: false,
++            conditions_default: {
++                enabled: true,
++            },
++        },
++    },
+     defaults: ["hidl_defaults"],
+     init_rc: ["android.hardware.biometrics.fingerprint@2.1-service.rc"],
+     vintf_fragments: ["android.hardware.biometrics.fingerprint@2.1-service.xml"],

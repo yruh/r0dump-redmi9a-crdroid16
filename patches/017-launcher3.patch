@@ -1,0 +1,13 @@
+diff --git a/quickstep/AndroidManifest.xml b/quickstep/AndroidManifest.xml
+index 0dd735eea7119a2a83abc719dd83467c0772eeb2..86b1f16a68ecb304da3230204bf87f990fe38ea3 100644
+--- a/quickstep/AndroidManifest.xml
++++ b/quickstep/AndroidManifest.xml
+@@ -22,6 +22,8 @@
+      xmlns:tools="http://schemas.android.com/tools"
+      package="com.android.launcher3">
+ 
++    <uses-sdk tools:overrideLibrary="com.android.launcher3.widgetpicker,com.android.launcher3,com.android.launcher3.testing.shared" />
++
+     <uses-permission android:name="android.permission.BROADCAST_CLOSE_SYSTEM_DIALOGS" />
+     <uses-permission android:name="android.permission.CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS"/>
+     <uses-permission android:name="android.permission.VIBRATE"/>

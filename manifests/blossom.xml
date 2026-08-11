@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+    <remote
+        name="crdroid-device"
+        fetch="https://github.com/"
+        revision="refs/heads/16.0"
+        sync-c="true" />
+
+    <project path="device/xiaomi/blossom"
+        name="crdroidandroid/android_device_xiaomi_blossom"
+        remote="crdroid-device"
+        revision="16.0" />
+    <project path="device/xiaomi/blossom-kernel"
+        name="crdroidandroid/android_kernel_xiaomi_blossom"
+        remote="crdroid-device"
+        revision="16.0" />
+    <project path="vendor/xiaomi/blossom"
+        name="crdroidandroid/proprietary_vendor_xiaomi_blossom"
+        remote="crdroid-device"
+        revision="16.0" />
+    <project path="hardware/mediatek"
+        name="crdroidandroid/android_hardware_mediatek"
+        remote="crdroid-device"
+        revision="16.0" />
+    <project path="device/mediatek/sepolicy_vndr"
+        name="crdroidandroid/android_device_mediatek_sepolicy_vndr"
+        remote="crdroid-device"
+        revision="16.0" />
+</manifest>

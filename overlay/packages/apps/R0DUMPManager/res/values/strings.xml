@@ -1,0 +1,220 @@
+<resources>
+    <string name="app_name">R0DUMP Manager</string>
+    <string name="title_console">R0DUMP Android 16 Console</string>
+    <string name="subtitle_console">Configure one target, watch the dump/export state, then repair from the exported files.</string>
+    <string name="tab_config">Config</string>
+    <string name="tab_log">Status</string>
+    <string name="tab_repair">Repair</string>
+    <string name="hero_eyebrow">Current workspace</string>
+    <string name="hero_no_target">No target selected</string>
+    <string name="hero_meta_waiting">Pick an app to prepare dump, status, and repair paths.</string>
+    <string name="hero_meta_ready">Process: %1$s · Export: %2$s</string>
+    <string name="hero_process_main">main process</string>
+    <string name="button_show_lab_strategies">Show experimental strategies</string>
+    <string name="button_hide_lab_strategies">Hide experimental strategies</string>
+    <string name="label_select_target_app">Select target app</string>
+    <string name="hint_target_package">Target package, e.g. com.example.app</string>
+    <string name="hint_target_process">Target process. Empty = main/any process, * = all processes, or com.example.app:remote</string>
+    <string name="hint_output_root">Output root, e.g. /sdcard/Download/R0DUMP. Empty = target app private directory</string>
+    <string name="hint_delay_ms">Startup delay in milliseconds, e.g. 60000</string>
+    <string name="hint_class_prefix">Class name prefix filter. Empty = all, e.g. com.example.</string>
+    <string name="hint_max_methods">Maximum active dump method count. 0 = unlimited</string>
+    <string name="check_dump_constructors">Dump constructors</string>
+    <string name="hint_max_records">Maximum method records before auto stop, e.g. 50000</string>
+    <string name="hint_max_seconds">Maximum active seconds before auto stop, e.g. 300</string>
+    <string name="hint_dex_write_mode">Dex write mode: skip, overwrite, or hash_check. Default = skip</string>
+    <string name="hint_class_walk_mode">Class walk mode: load_all or loaded_only (load_all keeps current coverage)</string>
+    <string name="hint_process_mode">Process mode: main_only, exact, or all</string>
+    <string name="check_stop_after_complete">Stop native runtime after class walk completes (may miss later dynamic dex)</string>
+    <string name="check_global_runtime_enabled">Global runtime dump: enable R0DUMP for all apps (target package is treated as *)</string>
+    <string name="strategy_force_backfill">Lab: force backfill via guarded method invoke (high risk, manual)</string>
+    <string name="label_force_backfill_controls">Force backfill risk controls</string>
+    <string name="check_force_backfill_enabled">Enable force backfill calls during class walk</string>
+    <string name="hint_force_backfill_max_methods">Force backfill max methods, e.g. 200</string>
+    <string name="hint_force_backfill_class_prefix">Force backfill class prefix, empty = class filter</string>
+    <string name="check_force_backfill_only_static">Force backfill only static methods</string>
+    <string name="check_force_backfill_skip_native">Force backfill skip native methods</string>
+    <string name="check_force_backfill_skip_constructor">Force backfill skip constructors</string>
+    <string name="log_warn_force_backfill">Warning: FORCE_BACKFILL invokes target methods. Keep limits low and test manually.</string>
+    <string name="log_force_backfill_prefix_required">Blocked unsafe config: force backfill requires a class prefix or force backfill class prefix to avoid app-wide active invocation crashes.</string>
+
+    <string name="check_dump_methods">Dump normal methods</string>
+    <string name="strategy_class_walk">Strategy: class walk + reflective Method/Constructor active dump</string>
+    <string name="strategy_app_create">Trigger: configure runtime before Application attach/create</string>
+    <string name="strategy_activity_create">Trigger: start dump after Activity creation</string>
+    <string name="strategy_real_invoke">Lab: dump during real method invocation / interpreter execution (higher overhead)</string>
+    <string name="strategy_load_method">Lab: dump when ClassLinker LoadMethod materializes a method (earlier trigger, higher overhead)</string>
+    <string name="strategy_dex_load">Lab: dump dex when DexFile is loaded (useful for dynamic dex loading)</string>
+    <string name="strategy_register_dex">Lab: dump dex when RegisterDexFile registers it (performance-sensitive)</string>
+    <string name="strategy_in_memory_dex">Lab: InMemoryDexClassLoader / ByteBuffer dex dump (recommended for in-memory loaders)</string>
+    <string name="strategy_define_class">Lab: export raw/fixed dex and dump class methods at ClassLinker::DefineClass (test alone for DexProtector)</string>
+    <string name="strategy_load_class">Lab: dump class methods after LoadClass (performance-sensitive)</string>
+    <string name="strategy_resolve_method">Lab: dump when ResolveMethod resolves a method (high-frequency / high-overhead)</string>
+    <string name="strategy_open_common">Lab: DexFileLoader OpenCommon dump (central dex open point)</string>
+    <string name="strategy_open_dex_files_from_oat">Lab: OatFileManager OpenDexFilesFromOat dump</string>
+    <string name="strategy_vdex_open_all_dex_files">Lab: VdexFile OpenAllDexFiles dump</string>
+    <string name="strategy_oat_dex_file_open">Lab: OatDexFile OpenDexFile dump</string>
+    <string name="strategy_verify_class">Lab: dump methods after class verification</string>
+    <string name="strategy_class_init_before">Lab: dump before class initializer &lt;clinit&gt;</string>
+    <string name="strategy_class_init_after">Lab: dump after class initialization succeeds</string>
+    <string name="strategy_interpreter_execute">Lab: dump on interpreter Execute (very hot)</string>
+    <string name="strategy_jit_method_entered">Lab: dump on JIT MethodEntered sampling path</string>
+    <string name="strategy_jit_compile">Lab: dump before JIT compilation</string>
+    <string name="strategy_reflect_method_invoke">Lab: dump before java.lang.reflect.Method.invoke</string>
+    <string name="strategy_instrument_method_enter">Lab: dump on instrumentation method enter</string>
+    <string name="strategy_instrument_method_exit">Lab: dump on instrumentation method exit</string>
+    <string name="log_warn_dex_open_points">Note: dex open points may dump early but can duplicate REGISTER_DEX/DEX_LOAD output.</string>
+    <string name="log_warn_hot_execution_points">Warning: execution/instrumentation points are hot paths; enable one at a time.</string>
+    <string name="strategy_java_class_loader_route">Lab: Java ClassLoader route audit (Path/Dex/InMemory/BaseDex/DexPathList)</string>
+    <string name="strategy_java_dexfile_route">Lab: Java DexFile route audit (constructors/open/loadClass/entries)</string>
+    <string name="strategy_define_class_native">Lab: DexFile.defineClassNative entry dex dump</string>
+    <string name="strategy_oat_register">Lab: OatFileManager RegisterOatFile audit</string>
+    <string name="strategy_image_space_dex">Lab: app image AddImageSpaces dex dump</string>
+    <string name="log_warn_java_route_points">Note: Java route points emit logcat audit records; use them for timeline reconstruction.</string>
+    <string name="label_target_package">Target package</string>
+    <string name="label_target_process">Target process</string>
+    <string name="label_output_root">Output root</string>
+    <string name="label_delay_ms">Delay milliseconds</string>
+    <string name="label_class_prefix">Class prefix filter</string>
+    <string name="label_max_methods">Max methods</string>
+    <string name="label_max_records">Max method records</string>
+    <string name="label_max_seconds">Max runtime seconds</string>
+    <string name="label_dex_write_mode">Dex write mode</string>
+    <string name="label_class_walk_mode">Class walk mode</string>
+    <string name="label_process_mode">Process mode</string>
+    <string name="label_force_backfill_max_methods">Force backfill max methods</string>
+    <string name="label_force_backfill_class_prefix">Force backfill class prefix</string>
+    <string name="label_class_filter_limits">Class filter / performance limits</string>
+    <string name="label_dump_strategy">Dump point strategies</string>
+    <string name="label_trigger_strategies">Dump triggers</string>
+    <string name="label_recommended_strategies">Recommended dump points</string>
+    <string name="label_original_defaults">Original-equivalent defaults</string>
+    <string name="help_original_defaults">Default selection mirrors the original path: wait for Activity launch, walk classes, extract normal methods and constructors, then stop after completion. Keep this profile for first tests.</string>
+    <string name="label_dex_open_strategies">Dex open / registration points</string>
+    <string name="label_class_lifecycle_strategies">Class lifecycle / linker points</string>
+    <string name="label_hot_execution_strategies">Hot execution points</string>
+    <string name="label_route_audit_strategies">Route audit points</string>
+    <string name="label_dangerous_active_strategies">Dangerous active invoke points</string>
+    <string name="label_lab_strategies">Experimental strategies (default off)</string>
+    <string name="lab_strategy_hint">Recommended device test order: IN_MEMORY_DEX → DEFINE_CLASS → REGISTER_DEX → LOAD_CLASS → RESOLVE_METHOD.\nFor protectors that patch ART DexFile and wipe headers, test DEFINE_CLASS alone first. Enable one performance-sensitive or route-audit point at a time.</string>
+    <string name="section_target">1. Target app</string>
+    <string name="section_output_timing">2. Output and timing</string>
+    <string name="section_status">Dump status</string>
+    <string name="section_paths">Path model</string>
+    <string name="help_output_pipeline">Default output is product-managed: R0DUMP writes hot-path files to the target app external-private working directory, then exports one snapshot to Download/R0DUMP when class-walk completes or limits stop runtime.</string>
+    <string name="help_strategy_default">Everything below is experimental. Enable one point or one group at a time after the default profile is confirmed on the target app.</string>
+    <string name="help_status_pipeline">Status is read from exported _r0dump_status.json or r0dump_status.json when available. If no exported status exists yet, wait for class-walk completion, a limit stop, or inspect logcat with tag [R0DUMP].</string>
+    <string name="help_paths">Working directory: target app private external files/r0dump/&lt;process&gt;.\nPublic export: /sdcard/Download/R0DUMP/&lt;process&gt;.\nManager repair should use the public export path after dump finishes.</string>
+    <string name="help_repair_inputs">Repair follows the selected app. Scan the app export directory, then R0DUMP reads methods_*.jsonl from that directory, patches matching dex files, removes duplicate outputs, and writes a repaired zip.</string>
+    <string name="button_preset_original">Use original defaults</string>
+    <string name="button_preset_dynamic_dex">Dynamic dex preset</string>
+    <string name="button_save_config">Save config</string>
+    <string name="button_start_dump_launch">Start dump and launch target</string>
+    <string name="button_stop_dump">Stop dump</string>
+    <string name="button_launch_only">Launch target only</string>
+    <string name="button_force_stop">Force-stop target</string>
+    <string name="button_scan_output">Scan output</string>
+    <string name="button_scan_current_app">Scan selected app</string>
+    <string name="button_refresh_status">Refresh dump status</string>
+    <string name="button_export_output">Export current bin directory to Download/R0DUMP</string>
+    <string name="label_dump_status">Dump status</string>
+    <string name="label_one_click_repair">One-click repair</string>
+    <string name="label_dump_dex_path">Dump dex path</string>
+    <string name="label_bin_path">Method record file or directory</string>
+    <string name="label_repair_output">Repair output path</string>
+    <string name="hint_dump_dex_path">Dump dex path, e.g. /sdcard/Download/R0DUMP/pkg/dex_contenthash_size_0xchecksum_locationhash_STRATEGY_source.dex</string>
+    <string name="hint_bin_path">methods_*.jsonl/bin file or directory, e.g. /sdcard/Download/R0DUMP/pkg</string>
+    <string name="hint_repair_output">Repaired dex output. Empty = auto-generate *_r0dump_repaired.dex</string>
+    <string name="button_repair_dex">Repair selected app</string>
+    <string name="label_log">Last action</string>
+
+    <string name="log_ready">Ready. Choose a target app, changes save immediately, then start dump.</string>
+    <string name="log_loaded_launchable_apps">Loaded launchable apps: %1$d</string>
+    <string name="log_preset_original">Original-equivalent preset applied: Activity trigger, class-walk, method and constructor extraction.</string>
+    <string name="log_preset_dynamic_dex">Dynamic dex preset applied: InMemoryDex, Dex load, DefineClass fixed dex, and raw dexdata mirror. Test one target first.</string>
+    <string name="log_preset_dexprotector">DexProtector mode applied: lightweight App/Activity trigger, InMemoryDex, DefineClass fixed dex, raw dexdata mirror, and no class-walk or force backfill.</string>
+    <string name="log_warn_no_arm_trigger">Warning: no Application/Activity trigger selected; the target process will not automatically start R0DUMP dump.</string>
+    <string name="log_global_runtime_enabled">Global runtime dump enabled: R0DUMP will start dump in matching processes for all apps with the current strategy.</string>
+    <string name="log_global_runtime_saved_no_launch">Global runtime config saved. No single target package was launched.</string>
+    <string name="log_config_saved">Config saved: enabled=%1$s, package=%2$s, process=%3$s, output=%4$s, strategy=0x%5$s</string>
+    <string name="log_operation_complete">Operation complete</string>
+    <string name="log_dump_starting">Starting dump in background…</string>
+    <string name="log_scan_started">Scanning outputs in background…</string>
+    <string name="log_action_already_running">An operation is already running.</string>
+    <string name="logcat_refreshed">Logcat refreshed</string>
+    <string name="logcat_read_failed">Logcat read failed: %1$s</string>
+    <string name="logcat_empty">Logcat returned no lines. exit=%1$d</string>
+    <string name="logcat_empty_r0dump">No R0DUMP log lines yet.</string>
+    <string name="logcat_display_cleared">Logcat display cleared</string>
+    <string name="log_advice_in_memory_dex">Advice: IN_MEMORY_DEX is a good first test for in-memory / ByteBuffer dex loading.</string>
+    <string name="log_warn_register_dex">Note: REGISTER_DEX is performance-sensitive; test it alone.</string>
+    <string name="log_warn_define_class">Note: DEFINE_CLASS is performance-sensitive; test it alone.</string>
+    <string name="log_warn_load_class">Note: LOAD_CLASS is performance-sensitive; test it alone.</string>
+    <string name="log_warn_resolve_method">Warning: RESOLVE_METHOD is high-frequency / high-overhead; test it last and alone.</string>
+    <string name="log_warn_resolve_real_invoke">Strong warning: do not enable RESOLVE_METHOD and REAL_INVOKE together; it can cause noticeable lag and duplicate dumps.</string>
+    <string name="log_warn_multiple_sensitive">Advice: multiple performance-sensitive strategies are enabled; test one at a time on device.</string>
+    <string name="log_target_package_empty">Target package is empty</string>
+    <string name="log_dump_stopped">Dump switch stopped. Already running target processes will not be killed automatically.</string>
+    <string name="log_scan_done">Scan complete: dex=%1$d, records=%2$d, dir=%3$s</string>
+    <string name="status_read_failed">Read failed: %1$s: %2$s</string>
+    <string name="status_not_found">No R0DUMP status JSON found. If output is in the target private directory, adb/root export may be required.</string>
+    <string name="status_not_refreshed">Not refreshed yet.</string>
+    <string name="status_waiting_for_file">Waiting for the status file.</string>
+    <string name="status_source">Status file: %1$s</string>
+    <string name="status_phase">Phase: %1$s</string>
+    <string name="status_process">Process: %1$s</string>
+    <string name="status_output_dir">Working output: %1$s</string>
+    <string name="status_counts">Dex files: %1$d, method records: %2$d, duplicates skipped: %3$d</string>
+    <string name="status_updated">Updated: %1$s</string>
+    <string name="status_strategies">Strategies: %1$s</string>
+    <string name="status_visual_target">Target: %1$s\nProcess: %2$s, pid=%3$d</string>
+    <string name="status_visual_phase">State: %1$s</string>
+    <string name="status_visual_counts">Output: %1$d dex files, %2$d method records, %3$d duplicate methods skipped</string>
+    <string name="status_visual_skips">Skipped: non-standard DEX=%1$d, invalid methods=%2$d</string>
+    <string name="status_visual_backfill">Force backfill: invoked=%1$d, changed=%2$d, unchanged=%3$d, guard skipped=%4$d, invoke exceptions=%5$d, failed=%6$d</string>
+    <string name="status_visual_updated">Last update: %1$s</string>
+    <string name="status_visual_strategies">Active strategies: %1$s</string>
+    <string name="status_visual_paths">Working output: %1$s\nStatus file: %2$s</string>
+    <string name="phase_dumping">Dumping</string>
+    <string name="phase_configured">Configured, waiting for app startup</string>
+    <string name="phase_waiting_delay">Waiting for configured delay</string>
+    <string name="phase_class_walk">Walking classes and writing records</string>
+    <string name="phase_class_walk_failed">Class walk failed; hot dump remains available</string>
+    <string name="phase_saved">Saved</string>
+    <string name="phase_pending_save">Pending save</string>
+    <string name="phase_complete">Complete</string>
+    <string name="phase_stopped">Stopped</string>
+    <string name="phase_unknown">Unknown</string>
+    <string name="status_empty_value">none</string>
+    <string name="path_unknown_until_target">Unknown until target package is selected</string>
+    <string name="path_summary">Expected working path: %1$s\nExpected public export: %2$s</string>
+    <string name="log_status_refreshed">Status refreshed</string>
+    <string name="log_current_bin_not_dir">Current bin path is not a directory: %1$s</string>
+    <string name="log_export_done">Export complete: %1$s</string>
+    <string name="log_export_failed">Export failed: %1$s. If the source directory is under /data/data/&lt;target&gt;, SELinux may block access.</string>
+    <string name="log_launch_entry_missing">No launch entry found: %1$s</string>
+    <string name="log_launched">Launched: %1$s</string>
+    <string name="log_force_stopped">Force-stopped: %1$s</string>
+    <string name="repair_not_scanned">Not scanned yet. Choose a target app, then scan its R0DUMP export directory.</string>
+    <string name="repair_plan_summary">Selected app: %1$s\nScan directory: %2$s\nFound: %3$d dex files, %4$d record files\nRepaired output: %5$s\nDeduplicated package: %6$s</string>
+    <string name="log_repair_started">Repair started in background: dex=%1$d, records=%2$d, dir=%3$s</string>
+    <string name="log_repair_already_running">Repair is already running.</string>
+    <string name="log_repair_done">Repair complete: dex=%1$d, recordFiles=%2$d, repaired=%3$d, records=%4$d, applied=%5$d, skipped=%6$d, duplicates=%7$d, bytes=%8$d, zip=%9$s</string>
+    <string name="log_repair_failed">Repair failed: %1$s</string>
+    <string name="error_no_bin_files">No bin files found: %1$s</string>
+    <string name="error_no_dex_files">No dump dex files found: %1$s</string>
+    <string name="error_no_repair_records">Raw dexdata requires methods_raw repair records with header snapshots: %1$s</string>
+    <string name="log_skip_unmatched_dex_name">Skipped dex with unmatched R0DUMP filename: %1$s</string>
+    <string name="log_offset_fallback">Invalid offset, using method_idx fallback: method_idx=%1$d offset=%2$d -&gt; %3$d</string>
+    <string name="log_skip_invalid_record">Skipping invalid record: method_idx=%1$d offset=%2$d len=%3$d</string>
+    <string name="error_no_records_applied">No repair records were applied</string>
+    <string name="error_no_repaired_outputs">No repaired dex outputs were produced</string>
+    <string name="error_invalid_dex">Not a valid dex: %1$s</string>
+    <string name="error_dex_file_size_mismatch">Dex file_size mismatch: header=%1$d actual=%2$d</string>
+
+    <string name="button_language">Language: %1$s</string>
+    <string name="language_system">System</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese_simplified">Simplified Chinese</string>
+    <string name="log_language_switch_failed">Language switch is unavailable on this build.</string>
+</resources>

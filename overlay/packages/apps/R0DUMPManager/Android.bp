@@ -1,0 +1,40 @@
+android_app {
+    name: "R0DUMPManager",
+    srcs: ["src/**/*.java", "src/**/*.kt"],
+    use_resource_processor: true,
+    kotlincflags: [
+        "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+        "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
+    ],
+    resource_dirs: ["res"],
+    static_libs: [
+        "com.google.android.material_material",
+        "androidx.appcompat_appcompat",
+        "androidx.activity_activity-compose",
+        "androidx.compose.animation_animation",
+        "androidx.compose.foundation_foundation",
+        "androidx.compose.material3_material3",
+        "androidx.compose.material_material-icons-extended",
+        "androidx.compose.runtime_runtime",
+        "androidx.compose.ui_ui",
+        "androidx.compose.ui_ui-graphics",
+        "androidx.compose.ui_ui-tooling-preview",
+        "androidx.core_core-ktx",
+        "androidx.lifecycle_lifecycle-runtime-ktx",
+    ],
+    certificate: "platform",
+    privileged: true,
+    platform_apis: true,
+    system_ext_specific: true,
+    optimize: {
+        enabled: false,
+    },
+}
+
+prebuilt_etc {
+    name: "privapp_permissions_com_android_r0dumpmanager",
+    src: "privapp-permissions-com.android.r0dumpmanager.xml",
+    filename: "privapp-permissions-com.android.r0dumpmanager.xml",
+    sub_dir: "permissions",
+    system_ext_specific: true,
+}

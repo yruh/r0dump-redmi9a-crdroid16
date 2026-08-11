@@ -1,0 +1,24 @@
+# order	project	base_revision	patch
+001	art	663e2bf7bf7cc369618c402c5a7d9ff5fee169cd	001-art.patch
+002	libcore	e73339d0561d165a6645317ce2f48bacc57daec9	002-libcore.patch
+003	frameworks/base	708e793e39322960e8f61edf2028aa30b07901fe	003-frameworks-base.patch
+004	vendor/lineage	fb3c549801c0ead93efed6108130e13685eac0c5	004-vendor-lineage.patch
+005	packages/apps/Settings	57f8d3535b5f5586d58956c04ca06b78fae5f278	005-settings.patch
+006	bionic	f07a44043af5acf02019fca65ce9a508271d2d24	006-bionic.patch
+007	build/make	f677d2036225433caad8444896f9578f5c4b5c66	007-build-make.patch
+008	build/soong	0cabbb4b4f9131a4d341974adf0cbcaa8b15ace0	008-build-soong.patch
+009	system/sepolicy	f2ea82107dc0915ce709c76d9cbd31e65d253a2b	009-system-sepolicy.patch
+010	device/mediatek/sepolicy_vndr	26287b7bac45c3d268f3a57d388a2f8f4fbc5db1	010-device-mtk-sepolicy.patch
+011	device/xiaomi/blossom	7fbb5673df67f3477fdd56c763b71036dea1ba3b	011-device-xiaomi-blossom.patch
+012	device/xiaomi/blossom-kernel	cb7a4a655315913bee0aa618f0aadf37eae14672	012-kernel-headers.patch
+013	hardware/interfaces	6e2d52e80d128070f671d52514ecdd28482c72c5	013-hardware-interfaces.patch
+014	hardware/mediatek	731bd1dfed86f7cfaacc8557fb23f2442c69ea4b	014-hardware-mediatek.patch
+015	frameworks/av	2598b568888069f73551f4502181eccb21066215	015-frameworks-av.patch
+016	packages/modules/Bluetooth	01d58e9e450877fa5cc9779882736de967f7a950	016-bluetooth.patch
+017	packages/apps/Launcher3	e19eb92f2e8d863e6ee9f041d768496bc16151f5	017-launcher3.patch
+018	external/XMP-Toolkit-SDK	83f7b87cad246ed89c6c7cc66bfcfeeccec6cc99	018-xmp-toolkit.patch
+019	external/google-highway	12062ba78328dac793dcec57c63865ab480f1f18	019-google-highway.patch
+020	external/libchrome	b6d25f9bf679b5dee1af847d14a3573d9fcb768f	020-libchrome.patch
+021	external/skia	22f5edb6c1bf350d1d9d67bb429db1a5539f3c05	021-skia.patch
+022	vendor/xiaomi/blossom	10391e9bc7c3b251a9ee2acccb2fc46bb86b8ef5	022-vendor-xiaomi-blossom-build.patch
+

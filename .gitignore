@@ -1,0 +1,28 @@
+# Android build output and generated state
+out/
+.repo/
+*.log
+*.tmp
+*.partial
+
+# Flashable and device-specific binaries are intentionally not versioned
+*.apk
+*.apex
+*.bin
+*.dex
+*.img
+*.jar
+*.odex
+*.so
+*.vdex
+*.zip
+
+# Signing material and local device data
+*.jks
+*.keystore
+*.pem
+*.pk8
+*.x509.pem
+device-backup*/
+proprietary/
+

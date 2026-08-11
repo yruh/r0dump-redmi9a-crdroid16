@@ -1,0 +1,29 @@
+diff --git a/system/gd/hci/controller_impl.cc b/system/gd/hci/controller_impl.cc
+index 69b2294bbe6b38cb5c1bf8e6b17e2e65b4f320a4..56595e92dd7a25df45da0fce2d42bd9687e00c21 100644
+--- a/system/gd/hci/controller_impl.cc
++++ b/system/gd/hci/controller_impl.cc
+@@ -43,10 +43,13 @@ constexpr int kMinEncryptionKeySizeDefault = kMinEncryptionKeySize;
+ constexpr int kMaxEncryptionKeySize = 16;
+ 
+ constexpr bool kDefaultVendorCapabilitiesEnabled = true;
++constexpr bool kDefaultErroneousDataReportingEnabled = true;
+ constexpr bool kDefaultRpaOffload = false;
+ 
+ static const std::string kPropertyVendorCapabilitiesEnabled =
+         "bluetooth.core.le.vendor_capabilities.enabled";
++static const std::string kPropertyErroneousDataReportingEnabled =
++        "bluetooth.hci.erroneous_data_reporting.enabled";
+ static const std::string kPropertyRpaOffload = "bluetooth.core.le.rpa_offload";
+ 
+ using os::Handler;
+@@ -244,7 +247,9 @@ struct ControllerImpl::impl {
+               handler_->BindOnceOn(this, &ControllerImpl::impl::le_set_host_feature_handler));
+     }
+ 
+-    if (is_supported(OpCode::READ_DEFAULT_ERRONEOUS_DATA_REPORTING)) {
++    if (os::GetSystemPropertyBool(kPropertyErroneousDataReportingEnabled,
++                                  kDefaultErroneousDataReportingEnabled) &&
++        is_supported(OpCode::READ_DEFAULT_ERRONEOUS_DATA_REPORTING)) {
+       hci_->EnqueueCommand(
+               ReadDefaultErroneousDataReportingBuilder::Create(),
+               handler_->BindOnceOn(

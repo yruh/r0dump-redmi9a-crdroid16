@@ -1,0 +1,16 @@
+diff --git a/tests/policy.py b/tests/policy.py
+index cf93ed7a140f9118ac0b41d2c772aa0ef2781f56..004edd78885ae7d4d0198aebca5978cf1a82d9c5 100644
+--- a/tests/policy.py
++++ b/tests/policy.py
+@@ -499,7 +499,10 @@ class Policy:
+ 
+     # load policy
+     def __InitPolicy(self, PolicyPath):
+-        cPolicyPath = create_string_buffer(PolicyPath.encode("ascii"))
++        # Policy files can live below a non-ASCII workspace path.  Pass the
++        # native filesystem representation to libsepol instead of assuming
++        # that every path is ASCII.
++        cPolicyPath = create_string_buffer(os.fsencode(PolicyPath))
+         self.__policydbP = self.__libsepolwrap.load_policy(cPolicyPath)
+         if (self.__policydbP is None):
+             sys.exit("Failed to load policy")

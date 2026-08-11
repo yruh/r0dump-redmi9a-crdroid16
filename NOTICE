@@ -1,0 +1,15 @@
+R0DUMP for Redmi 9A (blossom)
+Copyright 2026 the contributors to this repository.
+
+This repository contains modifications derived from:
+
+- R0DUMP by tiwe0: https://github.com/tiwe0/r0dump
+- Android Open Source Project: https://source.android.com/
+- crDroid Android: https://github.com/crdroidandroid
+- LineageOS: https://github.com/LineageOS
+
+The source patch set and original additions are distributed under the Apache
+License 2.0. Individual upstream files remain subject to their existing
+copyright notices and licenses. Xiaomi/MediaTek proprietary binaries are not
+included.
+

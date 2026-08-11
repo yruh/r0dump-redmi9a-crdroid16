@@ -1,0 +1,61 @@
+diff --git a/aidl/gadget/Android.bp b/aidl/gadget/Android.bp
+index 067c84a8562d05e14d33c7783e51077d743eb238..fcab288b2d712081d40ce8f1b3c7e86bc6bca6f4 100644
+--- a/aidl/gadget/Android.bp
++++ b/aidl/gadget/Android.bp
+@@ -24,6 +24,14 @@ soong_config_module_type {
+     ],
+ }
+ 
++soong_config_module_type {
++    name: "mediatek_gadget_service",
++    module_type: "cc_binary",
++    config_namespace: "mediatek_gadget",
++    bool_variables: ["use_custom_usb_gadget_rc"],
++    properties: ["enabled"],
++}
++
+ mediatek_gadget_prebuilt_defaults {
+     name: "mediatek_gadget_rc_defaults",
+     soong_config_variables: {
+@@ -36,8 +44,16 @@ mediatek_gadget_prebuilt_defaults {
+     },
+ }
+ 
+-cc_binary {
++mediatek_gadget_service {
+     name: "android.hardware.usb.gadget-service.mediatek",
++    soong_config_variables: {
++        use_custom_usb_gadget_rc: {
++            enabled: false,
++            conditions_default: {
++                enabled: true,
++            },
++        },
++    },
+     relative_install_path: "hw",
+     init_rc: ["android.hardware.usb.gadget-service.rc"],
+     vintf_fragments: [
+diff --git a/interfaces/hardware/bluetooth/audio/2.1/Android.bp b/interfaces/hardware/bluetooth/audio/2.1/Android.bp
+index 32ae6c3acf7f12f94c9871d3671aad7665aa939c..deeff2530b143804bdc2c47b3c5f13a840552f3b 100644
+--- a/interfaces/hardware/bluetooth/audio/2.1/Android.bp
++++ b/interfaces/hardware/bluetooth/audio/2.1/Android.bp
+@@ -5,7 +5,6 @@
+ hidl_interface {
+     name: "vendor.mediatek.hardware.bluetooth.audio@2.1",
+     root: "vendor.mediatek.hardware",
+-    system_ext_specific: true,
+     srcs: [
+         "types.hal",
+         "IBluetoothAudioPort.hal",
+diff --git a/interfaces/hardware/bluetooth/audio/2.2/Android.bp b/interfaces/hardware/bluetooth/audio/2.2/Android.bp
+index 0f9da9cc78854a587b126255beed52a4361941ba..a0c56632768d9d1f80bd5bdca899baa88501fe99 100644
+--- a/interfaces/hardware/bluetooth/audio/2.2/Android.bp
++++ b/interfaces/hardware/bluetooth/audio/2.2/Android.bp
+@@ -5,7 +5,6 @@
+ hidl_interface {
+     name: "vendor.mediatek.hardware.bluetooth.audio@2.2",
+     root: "vendor.mediatek.hardware",
+-    system_ext_specific: true,
+     srcs: [
+         "types.hal",
+         "IBluetoothAudioProvider.hal",

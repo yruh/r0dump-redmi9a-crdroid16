@@ -1,0 +1,75 @@
+diff --git a/libc/arch-arm64/bionic/__bionic_clone.S b/libc/arch-arm64/bionic/__bionic_clone.S
+index 03ec2f91292742e81901c8371cdeb988c86da2e2..3eb13a478f0884941bb1120924036c6e1192d174 100644
+--- a/libc/arch-arm64/bionic/__bionic_clone.S
++++ b/libc/arch-arm64/bionic/__bionic_clone.S
+@@ -44,7 +44,9 @@ ENTRY_PRIVATE(__bionic_clone)
+     # Set errno if something went wrong.
+     cmn     x0, #(MAX_ERRNO + 1)
+     cneg    x0, x0, hi
+-    b.hi    __set_errno_internal
++    b.ls    1f
++    b       __set_errno_internal
++1:
+ 
+     ret
+ 
+diff --git a/libc/arch-arm64/bionic/syscall.S b/libc/arch-arm64/bionic/syscall.S
+index 9e6f68ac41efe1e0539e9f5ee7239a22d75df0ab..5b0d558d8f9a4086bb4a2e0d70d6e835461dc321 100644
+--- a/libc/arch-arm64/bionic/syscall.S
++++ b/libc/arch-arm64/bionic/syscall.S
+@@ -43,7 +43,9 @@ ENTRY(syscall)
+     /* check if syscall returned successfully */
+     cmn     x0, #(MAX_ERRNO + 1)
+     cneg    x0, x0, hi
+-    b.hi    __set_errno_internal
++    b.ls    1f
++    b       __set_errno_internal
++1:
+ 
+     ret
+ END(syscall)
+diff --git a/libc/arch-arm64/bionic/vfork.S b/libc/arch-arm64/bionic/vfork.S
+index 26ac2555aa862a25de3ac9c0c4b37c5d333ba8b1..4a2ce0855e60d58db8673865bfe036d059f81c38 100644
+--- a/libc/arch-arm64/bionic/vfork.S
++++ b/libc/arch-arm64/bionic/vfork.S
+@@ -78,7 +78,9 @@ ENTRY_WEAK_FOR_NATIVE_BRIDGE(vfork)
+     str     w10, [x9, #20]
+     cmn     x0, #(MAX_ERRNO + 1)
+     cneg    x0, x0, hi
+-    b.hi    __set_errno_internal
++    b.ls    1f
++    b       __set_errno_internal
++1:
+ 
+ L(done):
+     ret
+diff --git a/libc/kernel/tools/defaults.py b/libc/kernel/tools/defaults.py
+index 2994e5e29fb1cfc7aecbcd831f0c189f6712240e..c3394ebcdd1009a3739a8c334d4e436eeac11f9c 100644
+--- a/libc/kernel/tools/defaults.py
++++ b/libc/kernel/tools/defaults.py
+@@ -62,6 +62,7 @@ kernel_structs_to_remove = {
+     "in_addr": "bits/in_addr.h",
+     "ip_mreq_source": "bits/ip_mreq_source.h",
+     "ip_msfilter": "bits/ip_msfilter.h",
++    "sched_param": None,
+     "tcphdr": "bits/tcphdr.h",
+     "timespec": "bits/timespec.h",
+     }
+diff --git a/libc/tools/gensyscalls.py b/libc/tools/gensyscalls.py
+index a93506d7c33c5ae7fc5566ecacaccfda43f0d3c5..bdad7d9c682ba1014ac51e371b5c51a4c56aed58 100755
+--- a/libc/tools/gensyscalls.py
++++ b/libc/tools/gensyscalls.py
+@@ -66,7 +66,12 @@ arm64_call = syscall_stub_header + """\
+ 
+     cmn     x0, #(MAX_ERRNO + 1)
+     cneg    x0, x0, hi
+-    b.hi    __set_errno_internal
++    // Keep the conditional branch local.  A large statically linked linker
++    // can place __set_errno_internal beyond AArch64's +/-1 MiB CONDBR19
++    // range; the unconditional branch has the larger +/-128 MiB range.
++    b.ls    1f
++    b       __set_errno_internal
++1:
+ 
+     ret
+ END(%(func)s)

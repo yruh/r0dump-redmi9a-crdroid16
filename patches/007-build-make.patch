@@ -1,0 +1,17 @@
+diff --git a/tools/releasetools/common.py b/tools/releasetools/common.py
+index d95e25f8fa3a726fbf28262eed92f14053c250d9..b24ad089cde747208b4dd13bc7ac70cb270c6168 100644
+--- a/tools/releasetools/common.py
++++ b/tools/releasetools/common.py
+@@ -2567,6 +2567,12 @@ def SignFile(input_name, output_name, key, password, min_api_level=None,
+ 
+   java_library_path = os.path.join(
+       OPTIONS.search_path, OPTIONS.signapk_shared_library_path)
++  java_executable = shutil.which(OPTIONS.java_path)
++  if java_executable:
++    java_home = os.path.dirname(os.path.dirname(os.path.realpath(java_executable)))
++    java_runtime_library_path = os.path.join(java_home, "lib")
++    if os.path.isdir(java_runtime_library_path):
++      java_library_path += os.pathsep + java_runtime_library_path
+ 
+   cmd = ([OPTIONS.java_path] + OPTIONS.java_args +
+          ["-Djava.library.path=" + java_library_path,

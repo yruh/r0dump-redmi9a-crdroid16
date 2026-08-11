@@ -1,0 +1,95 @@
+diff --git a/base/vendor/em_app.te b/base/vendor/em_app.te
+index c762b581c7e79c7c6ad77c1cddce2ce3be7edaf0..cce98d90b87b00e0b73603ea5737259364322248 100644
+--- a/base/vendor/em_app.te
++++ b/base/vendor/em_app.te
+@@ -105,6 +105,10 @@ allow em_app proc_usb_plat:file rw_file_perms;
+ # Purpose : add permission for /sys/class/udc/xxx/current_speed
+ allow em_app sysfs_usb_nonplat:dir search;
+ allow em_app sysfs_usb_nonplat:file rw_file_perms;
++starting_at_board_api(202604, `
++allow em_app sysfs_typec:dir search;
++allow em_app sysfs_typec:file rw_file_perms;
++')
+ 
+ # Date : 2021/05/07
+ # Purpose : AOL test in EngineerMode
+@@ -117,4 +121,4 @@ get_prop(em_app, vendor_mtk_mcf_prop)
+ 
+ # Date:2021/10/29
+ # Purpose: Allow EM PMU search extdev
+-allow em_app sysfs_extdev:dir search;
+\ No newline at end of file
++allow em_app sysfs_extdev:dir search;
+diff --git a/base/vendor/factory.te b/base/vendor/factory.te
+index e2623727ae863b8b9443085726505356765862ed..3d5ee1b2b90e31f69e2a607392bb1e5e7a972cd2 100644
+--- a/base/vendor/factory.te
++++ b/base/vendor/factory.te
+@@ -41,6 +41,10 @@ allow factory usb_device:chr_file rw_file_perms;
+ allow factory usb_device:dir r_dir_perms;
+ allow factory sysfs_usb_nonplat:file r_file_perms;
+ allow factory sysfs_usb_nonplat:dir r_dir_perms;
++starting_at_board_api(202604, `
++allow factory sysfs_typec:file r_file_perms;
++allow factory sysfs_typec:dir r_dir_perms;
++')
+ 
+ # Date: WK15.01
+ # Purpose : OTG Mount
+diff --git a/base/vendor/genfs_contexts b/base/vendor/genfs_contexts
+index 2f6eef20a925f0c5b50f91b79607ac5bbd6c9d7b..e03b3c8fbf5dd41de499b717eae7609abfc67577 100644
+--- a/base/vendor/genfs_contexts
++++ b/base/vendor/genfs_contexts
+@@ -234,7 +234,9 @@ genfscon sysfs /devices/platform/1000d000.pwrap/1000d000.pwrap:main_pmic/mt6397-
+ genfscon sysfs /devices/platform/soc/1000d000.pwrap/1000d000.pwrap:main_pmic/mt6397-rtc/rtc                         u:object_r:sysfs_rtc:s0
+ genfscon sysfs /devices/platform/10026000.pwrap/10026000.pwrap:mt6359-pmic/mt6359-rtc/rtc                           u:object_r:sysfs_rtc:s0
+ genfscon sysfs /devices/platform/10026000.pwrap/10026000.pwrap:mt6359p/mt6359p-rtc/rtc                              u:object_r:sysfs_rtc:s0
++until_board_api(202604, `
+ genfscon sysfs /class/typec                                                                                         u:object_r:sysfs_usb_nonplat:s0
++')
+ genfscon sysfs /devices/platform/mt_usb/musb-hdrc/dual_role_usb                                                     u:object_r:sysfs_usb_nonplat:s0
+ genfscon sysfs /devices/platform/mt_usb/musb-hdrc/cmode                                                             u:object_r:sysfs_usb_nonplat:s0
+ genfscon sysfs /devices/platform/11270000.usb3/musb-hdrc/cmode                                                      u:object_r:sysfs_usb_nonplat:s0
+diff --git a/base/vendor/meta_tst.te b/base/vendor/meta_tst.te
+index 8ce5c9705841cc35a1f44bea0e4ff9203242cfe7..3695f1cba523c7233b47cbfa262af665d2112752 100644
+--- a/base/vendor/meta_tst.te
++++ b/base/vendor/meta_tst.te
+@@ -186,6 +186,10 @@ allow meta_tst sysfs_android_usb:file rw_file_perms;
+ allow meta_tst sysfs_android_usb:dir search;
+ allow meta_tst sysfs_usb_nonplat:file rw_file_perms;
+ allow meta_tst sysfs_usb_nonplat:dir search;
++starting_at_board_api(202604, `
++allow meta_tst sysfs_typec:file rw_file_perms;
++allow meta_tst sysfs_typec:dir search;
++')
+ allow meta_tst sysfs_batteryinfo:file rw_file_perms;
+ allow meta_tst sysfs_batteryinfo:dir search;
+ 
+diff --git a/base/vendor/mtk_hal_usb.te b/base/vendor/mtk_hal_usb.te
+index ae777d9bbe91c007339bb270349a33091cc97b6b..b93b7bf6a9df87b36e83eaaf5f871a59bf3e5255 100644
+--- a/base/vendor/mtk_hal_usb.te
++++ b/base/vendor/mtk_hal_usb.te
+@@ -11,6 +11,10 @@ hal_server_domain(mtk_hal_usb, hal_usb_gadget)
+ 
+ r_dir_file(mtk_hal_usb, sysfs_usb_nonplat)
+ allow mtk_hal_usb sysfs_usb_nonplat:file w_file_perms;
++starting_at_board_api(202604, `
++r_dir_file(mtk_hal_usb, sysfs_typec)
++allow mtk_hal_usb sysfs_typec:file w_file_perms;
++')
+ 
+ allow mtk_hal_usb configfs:file create_file_perms;
+ allow mtk_hal_usb configfs:dir create_dir_perms;
+diff --git a/base/vendor/vold.te b/base/vendor/vold.te
+index a4b70e9483011f20362ada6eb0a7b510f9489e42..fa59ca1f046989d89953e8b10d7ed63178bbcdbf 100644
+--- a/base/vendor/vold.te
++++ b/base/vendor/vold.te
+@@ -40,6 +40,9 @@ allow vold swap_block_device:blk_file getattr;
+ 
+ # trigger udisk uevent
+ allow vold sysfs_usb_nonplat:file w_file_perms;
++starting_at_board_api(202604, `
++allow vold sysfs_typec:file w_file_perms;
++')
+ 
+ # MICROTRUST SEPolicy Rule
+ # Date : 2016/06/01

@@ -1,0 +1,33 @@
+diff --git a/src/com/android/settings/deviceinfo/firmwareversion/LineageVersionDetailPreference.kt b/src/com/android/settings/deviceinfo/firmwareversion/LineageVersionDetailPreference.kt
+index e7a07b2760297db8360c8081bcaf5f3f90670d15..82a54e0a43e292abc1350f0e7733e500057dcce4 100644
+--- a/src/com/android/settings/deviceinfo/firmwareversion/LineageVersionDetailPreference.kt
++++ b/src/com/android/settings/deviceinfo/firmwareversion/LineageVersionDetailPreference.kt
+@@ -62,8 +62,11 @@ class LineageVersionDetailPreference :
+         preference.onPreferenceClickListener = this
+     }
+ 
+-    override fun getSummary(context: Context): CharSequence =
+-        SystemProperties.get(LINEAGE_VERSION_PROPERTY, context.getString(R.string.unknown));
++    override fun getSummary(context: Context): CharSequence {
++        val version = SystemProperties.get(LINEAGE_VERSION_PROPERTY,
++            context.getString(R.string.unknown))
++        return if (version == "R0DUMP_16") "R0DUMP 16" else version
++    }
+ 
+     // return true swallows the click event, while return false will start the intent
+     override fun onPreferenceClick(preference: Preference): Boolean {
+diff --git a/src/com/android/settings/deviceinfo/firmwareversion/LineageVersionDetailPreferenceController.java b/src/com/android/settings/deviceinfo/firmwareversion/LineageVersionDetailPreferenceController.java
+index d4e7e1bb62cc99aaa9f9f16829bfba43de579b8e..c79b261c030de26bc4e0795f5debf0fef60df5ec 100644
+--- a/src/com/android/settings/deviceinfo/firmwareversion/LineageVersionDetailPreferenceController.java
++++ b/src/com/android/settings/deviceinfo/firmwareversion/LineageVersionDetailPreferenceController.java
+@@ -77,8 +77,9 @@ public class LineageVersionDetailPreferenceController extends BasePreferenceCont
+ 
+     @Override
+     public CharSequence getSummary() {
+-        return SystemProperties.get(KEY_LINEAGE_VERSION_PROP,
++        final String version = SystemProperties.get(KEY_LINEAGE_VERSION_PROP,
+                 mContext.getString(R.string.unknown));
++        return TextUtils.equals(version, "R0DUMP_16") ? "R0DUMP 16" : version;
+     }
+ 
+     @Override

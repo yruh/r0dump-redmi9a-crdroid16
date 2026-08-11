@@ -1,0 +1,1134 @@
+diff --git a/libdexfile/dex/dex_file.cc b/libdexfile/dex/dex_file.cc
+index c24a49294439439bf583ed9f25ca08ea318f8ea1..904cf860198e4377d91d2423aeb4a3742d25121c 100644
+--- a/libdexfile/dex/dex_file.cc
++++ b/libdexfile/dex/dex_file.cc
+@@ -22,11 +22,15 @@
+ #include <string.h>
+ #include <zlib.h>
+ 
++#include <algorithm>
+ #include <memory>
++#include <map>
++#include <mutex>
+ #include <optional>
+ #include <ostream>
+ #include <sstream>
+ #include <type_traits>
++#include <vector>
+ 
+ #include "android-base/stringprintf.h"
+ #include "base/hiddenapi_domain.h"
+@@ -61,6 +65,93 @@ static_assert(std::is_trivially_copyable<dex::StringIndex>::value, "StringIndex
+ static_assert(sizeof(dex::TypeIndex) == sizeof(uint16_t), "TypeIndex size is wrong");
+ static_assert(std::is_trivially_copyable<dex::TypeIndex>::value, "TypeIndex not trivial");
+ 
++namespace {
++
++static constexpr size_t kR0DumpMaxDexHeaderPrefixSnapshot = 8u * 1024u * 1024u;
++
++struct R0DumpDexHeaderSnapshot {
++  const uint8_t* begin = nullptr;
++  const uint8_t* data_begin = nullptr;
++  size_t data_size = 0u;
++  std::vector<uint8_t> header;
++};
++
++std::mutex gR0DumpDexHeaderSnapshotsMutex;
++std::map<const uint8_t*, R0DumpDexHeaderSnapshot> gR0DumpDexHeaderSnapshots;
++
++void R0DumpRememberDexHeaderSnapshot(const uint8_t* begin,
++                                     const uint8_t* data_begin,
++                                     size_t data_size,
++                                     size_t available_size) {
++  if (begin == nullptr || available_size < sizeof(DexFile::Header)) {
++    return;
++  }
++  if (!StandardDexFile::IsMagicValid(begin)) {
++    return;
++  }
++  const DexFile::Header* header = reinterpret_cast<const DexFile::Header*>(begin);
++  size_t header_size = header->header_size_;
++  if (header_size < sizeof(DexFile::Header) || header_size > sizeof(DexFile::HeaderV41) ||
++      header_size > available_size) {
++    header_size = sizeof(DexFile::Header);
++  }
++  size_t prefix_size = header_size;
++  if (data_begin != nullptr && data_begin > begin) {
++    const size_t data_offset = static_cast<size_t>(data_begin - begin);
++    if (data_offset <= available_size && data_offset <= kR0DumpMaxDexHeaderPrefixSnapshot) {
++      prefix_size = std::max(prefix_size, data_offset);
++    }
++  }
++  R0DumpDexHeaderSnapshot snapshot;
++  snapshot.begin = begin;
++  snapshot.data_begin = data_begin;
++  snapshot.data_size = data_size;
++  snapshot.header.assign(begin, begin + prefix_size);
++  std::lock_guard<std::mutex> lock(gR0DumpDexHeaderSnapshotsMutex);
++  gR0DumpDexHeaderSnapshots[begin] = std::move(snapshot);
++}
++
++}  // namespace
++
++extern "C" __attribute__((visibility("default"))) bool r0dumpGetDexHeaderSnapshot(
++    const void* begin,
++    const void* data_begin,
++    size_t data_size,
++    void* out,
++    size_t out_capacity,
++    size_t* out_size) {
++  if (out_size != nullptr) {
++    *out_size = 0u;
++  }
++  if (out == nullptr || out_capacity == 0u) {
++    return false;
++  }
++  std::lock_guard<std::mutex> lock(gR0DumpDexHeaderSnapshotsMutex);
++  const uint8_t* begin_key = reinterpret_cast<const uint8_t*>(begin);
++  auto it = gR0DumpDexHeaderSnapshots.find(begin_key);
++  if (it == gR0DumpDexHeaderSnapshots.end()) {
++    const uint8_t* data_begin_key = reinterpret_cast<const uint8_t*>(data_begin);
++    for (auto candidate = gR0DumpDexHeaderSnapshots.begin();
++         candidate != gR0DumpDexHeaderSnapshots.end();
++         ++candidate) {
++      if (candidate->second.data_begin == data_begin_key &&
++          candidate->second.data_size == data_size) {
++        it = candidate;
++        break;
++      }
++    }
++  }
++  if (it == gR0DumpDexHeaderSnapshots.end() || it->second.header.empty() ||
++      it->second.header.size() > out_capacity) {
++    return false;
++  }
++  memcpy(out, it->second.header.data(), it->second.header.size());
++  if (out_size != nullptr) {
++    *out_size = it->second.header.size();
++  }
++  return true;
++}
++
+ // Print the SHA1 as 20-byte hexadecimal string.
+ std::string DexFile::Sha1::ToString() const {
+   auto data = this->data();
+@@ -169,6 +260,8 @@ DexFile::DexFile(const uint8_t* base,
+   // any of the sections via a pointer.
+   CHECK_ALIGNED(begin_, alignof(Header));
+ 
++  R0DumpRememberDexHeaderSnapshot(begin_, DataBegin(), DataSize(), container_->End() - begin_);
++
+   if (DataSize() < sizeof(Header)) {
+     // Don't go further if the data doesn't even contain a header.
+     return;
+diff --git a/libdexfile/dex/dex_file_loader.cc b/libdexfile/dex/dex_file_loader.cc
+index 96dd2632f2c27ed100590c67e443a67ad4779b49..d1f8cc2421e02038bffba1ded4ab4f543bca0e2f 100644
+--- a/libdexfile/dex/dex_file_loader.cc
++++ b/libdexfile/dex/dex_file_loader.cc
+@@ -37,6 +37,11 @@
+ 
+ namespace art {
+ 
++extern "C" bool isR0DumpStrategyEnabled(uint32_t strategy) __attribute__((weak));
++extern "C" void dumpR0DumpDexFileByStrategy(
++    const DexFile* dex_file, const char* suffix, uint32_t strategy) __attribute__((weak));
++static constexpr uint32_t kR0DumpStrategyOpenCommon = 1u << 14;
++
+ #if defined(STATIC_LIB)
+ #define DEXFILE_SCOPED_TRACE(name)
+ #else
+@@ -491,6 +496,11 @@ std::unique_ptr<DexFile> DexFileLoader::OpenCommon(std::shared_ptr<DexFileContai
+   if (error_code != nullptr) {
+     *error_code = DexFileLoaderErrorCode::kNoError;
+   }
++  if (isR0DumpStrategyEnabled != nullptr &&
++      dumpR0DumpDexFileByStrategy != nullptr &&
++      isR0DumpStrategyEnabled(kR0DumpStrategyOpenCommon)) {
++    dumpR0DumpDexFileByStrategy(dex_file.get(), "open_common", kR0DumpStrategyOpenCommon);
++  }
+   return dex_file;
+ }
+ 
+diff --git a/runtime/Android.bp b/runtime/Android.bp
+index dd3e078594e9b8eb8f873ca4d323d67c19b8ee1e..b6b1640e2065b380c8aad57c804069e6ba2a3779 100644
+--- a/runtime/Android.bp
++++ b/runtime/Android.bp
+@@ -273,6 +273,7 @@ cc_defaults {
+         "app_info.cc",
+         "art_field.cc",
+         "art_method.cc",
++        "r0dump_runtime.cc",
+         "assume_value_signatures.cc",
+         "backtrace_helper.cc",
+         "barrier.cc",
+diff --git a/runtime/art_method.cc b/runtime/art_method.cc
+index e662e7878204db633d054a4863c39a97ad635f90..d3e7ed9bb4b31604fe58358a9025bdad6ba83624 100644
+--- a/runtime/art_method.cc
++++ b/runtime/art_method.cc
+@@ -62,6 +62,10 @@ extern "C" void art_quick_invoke_stub(ArtMethod*, uint32_t*, uint32_t, Thread*,
+                                       const char*);
+ extern "C" void art_quick_invoke_static_stub(ArtMethod*, uint32_t*, uint32_t, Thread*, JValue*,
+                                              const char*);
++extern "C" bool isR0DumpStrategyEnabled(uint32_t strategy);
++extern "C" void dumpR0DumpMethodByStrategy(ArtMethod* method, uint32_t strategy)
++    REQUIRES_SHARED(Locks::mutator_lock_);
++static constexpr uint32_t kR0DumpStrategyRealInvoke = 1u << 3;
+ 
+ // Enforce that we have the right index for runtime methods.
+ static_assert(ArtMethod::kRuntimeMethodDexMethodIndex == dex::kDexNoIndex,
+@@ -371,6 +375,9 @@ void ArtMethod::Invoke(Thread* self, uint32_t* args, uint32_t args_size, JValue*
+     ThrowStackOverflowError<kNativeStackType>(self);
+     return;
+   }
++  if (UNLIKELY(isR0DumpStrategyEnabled(kR0DumpStrategyRealInvoke))) {
++    dumpR0DumpMethodByStrategy(this, kR0DumpStrategyRealInvoke);
++  }
+ 
+   if (kIsDebugBuild) {
+     self->AssertThreadSuspensionIsAllowable();
+diff --git a/runtime/class_linker.cc b/runtime/class_linker.cc
+index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b6553827b3f 100644
+--- a/runtime/class_linker.cc
++++ b/runtime/class_linker.cc
+@@ -170,6 +170,37 @@ namespace art HIDDEN {
+ 
+ using android::base::StringPrintf;
+ 
++// R0DUMP hooks share a small C ABI with the runtime compatibility layer.
++extern "C" bool isR0DumpStrategyEnabled(uint32_t strategy);
++extern "C" void dumpR0DumpMethodByStrategy(ArtMethod* method, uint32_t strategy)
++    REQUIRES_SHARED(Locks::mutator_lock_);
++extern "C" void dumpR0DumpDexFileByStrategy(const DexFile* dex_file,
++                                             const char* suffix,
++                                             uint32_t strategy);
++
++static constexpr uint32_t kR0DumpStrategyLoadMethod = 1u << 4;
++static constexpr uint32_t kR0DumpStrategyRegisterDex = 1u << 6;
++static constexpr uint32_t kR0DumpStrategyDefineClass = 1u << 8;
++static constexpr uint32_t kR0DumpStrategyLoadClass = 1u << 9;
++static constexpr uint32_t kR0DumpStrategyResolveMethod = 1u << 10;
++static constexpr uint32_t kR0DumpStrategyVerifyClass = 1u << 18;
++static constexpr uint32_t kR0DumpStrategyClassInitBefore = 1u << 19;
++static constexpr uint32_t kR0DumpStrategyClassInitAfter = 1u << 20;
++
++static void R0DumpDumpClassMethodsByStrategy(ObjPtr<mirror::Class> klass,
++                                             uint32_t strategy,
++                                             PointerSize pointer_size)
++    REQUIRES_SHARED(Locks::mutator_lock_) {
++  if (klass == nullptr || !isR0DumpStrategyEnabled(strategy)) {
++    return;
++  }
++  for (ArtMethod& method : klass->GetMethods(pointer_size)) {
++    if (method.HasCodeItem()) {
++      dumpR0DumpMethodByStrategy(&method, strategy);
++    }
++  }
++}
++
+ static constexpr bool kCheckImageObjects = kIsDebugBuild;
+ static constexpr bool kVerifyArtMethodDeclaringClasses = kIsDebugBuild;
+ 
+@@ -3558,6 +3589,10 @@ ObjPtr<mirror::Class> ClassLinker::DefineClass(Thread* self,
+   metrics::AutoTimer timeDelta{GetMetrics()->ClassLoadingTotalTimeDelta()};
+   auto klass = hs.NewHandle<mirror::Class>(nullptr);
+ 
++  // Observe the backing DEX before class materialization can alter its data.
++  dumpR0DumpDexFileByStrategy(&dex_file, "class_linker_define_class",
++                              kR0DumpStrategyDefineClass);
++
+   // Load the class from the dex file.
+   if (UNLIKELY(!init_done_)) {
+     // finish up init of hand crafted class_roots_
+@@ -3738,6 +3773,9 @@ ObjPtr<mirror::Class> ClassLinker::DefineClass(Thread* self,
+   // Notify native debugger of the new class and its layout.
+   jit::Jit::NewTypeLoadedIfUsingJit(h_new_class.Get());
+ 
++  R0DumpDumpClassMethodsByStrategy(
++      h_new_class.Get(), kR0DumpStrategyDefineClass, image_pointer_size_);
++
+   return sdc.Finish(h_new_class);
+ }
+ 
+@@ -4428,6 +4466,9 @@ void ClassLinker::LoadClassHelper::FillMethods(ObjPtr<mirror::Class> klass,
+       }
+       instr->InitializeMethodsCode(dst, entrypoint, kPointerSize);
+     }
++    if (UNLIKELY(isR0DumpStrategyEnabled(kR0DumpStrategyLoadMethod)) && dst->HasCodeItem()) {
++      dumpR0DumpMethodByStrategy(dst, kR0DumpStrategyLoadMethod);
++    }
+   }
+ }
+ 
+@@ -4455,6 +4496,8 @@ void ClassLinker::LoadClass(Thread* self,
+                             const DexFile& dex_file,
+                             const dex::ClassDef& dex_class_def,
+                             Handle<mirror::Class> klass) {
++  dumpR0DumpDexFileByStrategy(&dex_file, "class_linker_load_class",
++                              kR0DumpStrategyLoadClass);
+   ClassAccessor accessor(dex_file,
+                          dex_class_def,
+                          /* parse_hiddenapi_class_data= */ klass->IsBootStrapClassLoaded());
+@@ -4488,6 +4531,8 @@ void ClassLinker::LoadClass(Thread* self,
+   }
+   // Ensure that the card is marked so that remembered sets pick up native roots.
+   WriteBarrier::ForEveryFieldWrite(klass.Get());
++  R0DumpDumpClassMethodsByStrategy(
++      klass.Get(), kR0DumpStrategyLoadClass, image_pointer_size_);
+   self->AllowThreadSuspension();
+ }
+ 
+@@ -4750,6 +4795,7 @@ ObjPtr<mirror::DexCache> ClassLinker::RegisterDexFile(const DexFile& dex_file,
+   }
+   VLOG(class_linker) << "Registered dex file " << dex_file.GetLocation();
+   PaletteNotifyDexFileLoaded(dex_file.GetLocation().c_str());
++  dumpR0DumpDexFileByStrategy(&dex_file, "dexfile_register", kR0DumpStrategyRegisterDex);
+   return h_dex_cache.Get();
+ }
+ 
+@@ -5401,6 +5447,8 @@ verifier::FailureKind ClassLinker::VerifyClass(Thread* self,
+   }
+ 
+   UpdateClassAfterVerification(klass, image_pointer_size_, verifier_failure);
++  R0DumpDumpClassMethodsByStrategy(
++      klass.Get(), kR0DumpStrategyVerifyClass, image_pointer_size_);
+   return verifier_failure;
+ }
+ 
+@@ -6159,6 +6207,8 @@ bool ClassLinker::InitializeClass(Thread* self,
+     if (clinit != nullptr) {
+       CHECK(can_init_statics);
+       JValue result;
++      R0DumpDumpClassMethodsByStrategy(
++          klass.Get(), kR0DumpStrategyClassInitBefore, image_pointer_size_);
+       clinit->Invoke(self, nullptr, 0, &result, "V");
+     }
+   }
+@@ -6204,6 +6254,10 @@ bool ClassLinker::InitializeClass(Thread* self,
+   if (callback != nullptr) {
+     callback->MakeVisible(self);
+   }
++  if (success) {
++    R0DumpDumpClassMethodsByStrategy(
++        klass.Get(), kR0DumpStrategyClassInitAfter, image_pointer_size_);
++  }
+   return success;
+ }
+ 
+@@ -10447,6 +10501,7 @@ ArtMethod* ClassLinker::ResolveMethodId(uint32_t method_idx,
+   if (resolved != nullptr) {
+     DCHECK(!resolved->IsRuntimeMethod());
+     DCHECK(resolved->GetDeclaringClassUnchecked() != nullptr) << resolved->GetDexMethodIndex();
++    dumpR0DumpMethodByStrategy(resolved, kR0DumpStrategyResolveMethod);
+     return resolved;
+   }
+   // Fail, get the declaring class.
+@@ -10456,7 +10511,9 @@ ArtMethod* ClassLinker::ResolveMethodId(uint32_t method_idx,
+     Thread::Current()->AssertPendingException();
+     return nullptr;
+   }
+-  return FindResolvedMethod(klass, dex_cache.Get(), class_loader.Get(), method_idx);
++  ArtMethod* method = FindResolvedMethod(klass, dex_cache.Get(), class_loader.Get(), method_idx);
++  dumpR0DumpMethodByStrategy(method, kR0DumpStrategyResolveMethod);
++  return method;
+ }
+ 
+ ArtField* ClassLinker::LookupResolvedField(uint32_t field_idx,
+diff --git a/runtime/instrumentation.cc b/runtime/instrumentation.cc
+index 28c4f35db38d4823b0c55302f03b627330f7e353..6f1cb209378782d323c1bd0e90027446faafa93c 100644
+--- a/runtime/instrumentation.cc
++++ b/runtime/instrumentation.cc
+@@ -57,6 +57,8 @@
+ 
+ namespace art HIDDEN {
+ 
++extern "C" void dumpR0DumpMethodByStrategy(ArtMethod* artmethod, uint32_t strategy);
++
+ namespace instrumentation {
+ 
+ constexpr bool kVerboseInstrumentation = false;
+@@ -1445,6 +1447,7 @@ const void* Instrumentation::GetMaybeInstrumentedCodeForInvoke(ArtMethod* method
+ 
+ void Instrumentation::MethodEnterEventImpl(Thread* thread, ArtMethod* method) const {
+   DCHECK(!method->IsRuntimeMethod());
++  dumpR0DumpMethodByStrategy(method, kR0DumpInstrumentationStrategyMethodEnter);
+   if (HasMethodEntryListeners()) {
+     for (InstrumentationListener* listener : method_entry_slow_listeners_) {
+       if (listener != nullptr) {
+@@ -1464,6 +1467,7 @@ void Instrumentation::MethodExitEventImpl(Thread* thread,
+                                           ArtMethod* method,
+                                           OptionalFrame frame,
+                                           MutableHandle<mirror::Object>& return_value) const {
++  dumpR0DumpMethodByStrategy(method, kR0DumpInstrumentationStrategyMethodExit);
+   if (HasMethodExitListeners()) {
+     for (InstrumentationListener* listener : method_exit_slow_listeners_) {
+       if (listener != nullptr) {
+@@ -1482,6 +1486,7 @@ template<> void Instrumentation::MethodExitEventImpl(Thread* thread,
+                                                      ArtMethod* method,
+                                                      OptionalFrame frame,
+                                                      JValue& return_value) const {
++  dumpR0DumpMethodByStrategy(method, kR0DumpInstrumentationStrategyMethodExit);
+   if (HasMethodExitListeners()) {
+     Thread* self = Thread::Current();
+     StackHandleScope<1> hs(self);
+diff --git a/runtime/instrumentation.h b/runtime/instrumentation.h
+index 5112f0e789faaba1e3eae281333c114a5f6a3d4d..d1e9597328afa906e35e3c485fbcb3121e19f12e 100644
+--- a/runtime/instrumentation.h
++++ b/runtime/instrumentation.h
+@@ -54,6 +54,10 @@ class ShadowFrame;
+ class Thread;
+ enum class DeoptimizationMethodType;
+ 
++extern "C" bool isR0DumpStrategyEnabled(uint32_t strategy);
++static constexpr uint32_t kR0DumpInstrumentationStrategyMethodEnter = 1u << 25;
++static constexpr uint32_t kR0DumpInstrumentationStrategyMethodExit = 1u << 26;
++
+ namespace instrumentation {
+ 
+ 
+@@ -458,7 +462,8 @@ class Instrumentation {
+   // listeners into executing code and get method enter events for methods already on the stack.
+   void MethodEnterEvent(Thread* thread, ArtMethod* method) const
+       REQUIRES_SHARED(Locks::mutator_lock_) {
+-    if (UNLIKELY(HasMethodEntryListeners())) {
++    if (UNLIKELY(HasMethodEntryListeners() ||
++                 isR0DumpStrategyEnabled(kR0DumpInstrumentationStrategyMethodEnter))) {
+       MethodEnterEventImpl(thread, method);
+     }
+   }
+@@ -470,7 +475,8 @@ class Instrumentation {
+                        OptionalFrame frame,
+                        T& return_value) const
+       REQUIRES_SHARED(Locks::mutator_lock_) {
+-    if (UNLIKELY(HasMethodExitListeners())) {
++    if (UNLIKELY(HasMethodExitListeners() ||
++                 isR0DumpStrategyEnabled(kR0DumpInstrumentationStrategyMethodExit))) {
+       MethodExitEventImpl(thread, method, frame, return_value);
+     }
+   }
+diff --git a/runtime/interpreter/interpreter.cc b/runtime/interpreter/interpreter.cc
+index f96998f6fee43e6e29835828bf5c7a5ad3b16c33..3cb61ee36688e47b87f1f62358caadc1ffe161a5 100644
+--- a/runtime/interpreter/interpreter.cc
++++ b/runtime/interpreter/interpreter.cc
+@@ -38,6 +38,13 @@
+ #include "unstarted_runtime.h"
+ 
+ namespace art HIDDEN {
++
++extern "C" void dumpDexFileByExecute(ArtMethod* method)
++    REQUIRES_SHARED(Locks::mutator_lock_);
++extern "C" void dumpR0DumpMethodByStrategy(ArtMethod* method, uint32_t strategy)
++    REQUIRES_SHARED(Locks::mutator_lock_);
++static constexpr uint32_t kR0DumpStrategyInterpreterExecute = 1u << 21;
++
+ namespace interpreter {
+ 
+ ALWAYS_INLINE static ObjPtr<mirror::Object> ObjArg(uint32_t arg)
+@@ -276,6 +283,8 @@ static inline JValue Execute(
+       self->AssertNoPendingException();
+     }
+     ArtMethod *method = shadow_frame.GetMethod();
++    dumpDexFileByExecute(method);
++    dumpR0DumpMethodByStrategy(method, kR0DumpStrategyInterpreterExecute);
+ 
+     // If we can continue in JIT and have JITed code available execute JITed code.
+     if (!stay_in_interpreter &&
+diff --git a/runtime/jit/jit.cc b/runtime/jit/jit.cc
+index 6167da1a394fba863385bd2e4521e5b0c22d6112..ed360b5eba1ca6ab78a5beef44c42f04b701fab7 100644
+--- a/runtime/jit/jit.cc
++++ b/runtime/jit/jit.cc
+@@ -62,6 +62,11 @@
+ using android::base::unique_fd;
+ 
+ namespace art HIDDEN {
++
++extern "C" void dumpR0DumpMethodByStrategy(ArtMethod* artmethod, uint32_t strategy);
++static constexpr uint32_t kR0DumpStrategyJitMethodEntered = 1u << 22;
++static constexpr uint32_t kR0DumpStrategyJitCompile = 1u << 23;
++
+ namespace jit {
+ 
+ static constexpr bool kEnableOnStackReplacement = true;
+@@ -1479,6 +1484,7 @@ class ScopedSetRuntimeThread {
+ };
+ 
+ void Jit::MethodEntered(Thread* self, ArtMethod* method) {
++  dumpR0DumpMethodByStrategy(method, kR0DumpStrategyJitMethodEntered);
+   Runtime* runtime = Runtime::Current();
+   if (UNLIKELY(runtime->UseJitCompilation() && JitAtFirstUse())) {
+     ArtMethod* np_method = method->GetInterfaceMethodIfProxy(kRuntimePointerSize);
+@@ -1809,6 +1815,7 @@ bool Jit::CompileMethod(ArtMethod* method,
+                         Thread* self,
+                         CompilationKind compilation_kind,
+                         bool prejit) {
++  dumpR0DumpMethodByStrategy(method, kR0DumpStrategyJitCompile);
+   // Fake being in a runtime thread so that class-load behavior will be the same as normal jit.
+   ScopedSetRuntimeThread ssrt(self);
+   // TODO(ngeoffray): For JIT at first use, use kPreCompile. Currently we don't due to
+diff --git a/runtime/native/dalvik_system_DexFile.cc b/runtime/native/dalvik_system_DexFile.cc
+index da5fe5f0f2e590ec59b24f3098797cb8f5dcffdf..cec5a2dd47d39cdfc0b65944fe921168da367f9f 100644
+--- a/runtime/native/dalvik_system_DexFile.cc
++++ b/runtime/native/dalvik_system_DexFile.cc
+@@ -16,6 +16,7 @@
+ 
+ #include "dalvik_system_DexFile.h"
+ 
++#include <set>
+ #include <sstream>
+ 
+ #include "android-base/file.h"
+@@ -33,6 +34,7 @@
+ #include "base/zip_archive.h"
+ #include "class_linker.h"
+ #include "class_loader_context.h"
++#include "class_root-inl.h"
+ #include "common_throws.h"
+ #include "dex/art_dex_file_loader.h"
+ #include "dex/descriptors_names.h"
+@@ -42,8 +44,10 @@
+ #include "handle_scope-inl.h"
+ #include "jit/debugger_interface.h"
+ #include "jni/jni_internal.h"
++#include "mirror/class-inl.h"
+ #include "mirror/class_loader.h"
+ #include "mirror/object-inl.h"
++#include "mirror/object_array-alloc-inl.h"
+ #include "mirror/string.h"
+ #include "native_util.h"
+ #include "nativehelper/jni_macros.h"
+@@ -64,6 +68,53 @@
+ 
+ namespace art HIDDEN {
+ 
++extern "C" void configureR0DumpOutputRoot(const char* output_root);
++extern "C" void configureR0DumpRuntime(const char* output_root,
++                                        const char* package_name,
++                                        const char* process_name,
++                                        const char* run_id,
++                                        uint32_t strategy_mask,
++                                        uint64_t max_records,
++                                        uint64_t max_seconds,
++                                        bool stop_after_complete);
++extern "C" void stopR0DumpRuntime(const char* reason);
++extern "C" void configureR0DumpForceBackfill(uint64_t max_methods,
++                                              bool only_static,
++                                              bool skip_native,
++                                              bool skip_constructor);
++extern "C" void configureR0DumpRawDexDataMirror(bool enabled);
++extern "C" void configureR0DumpAsyncExport(bool enabled);
++extern "C" void noteR0DumpPhase(const char* phase);
++extern "C" void markR0DumpComplete();
++extern "C" void dumpR0DumpDexFileByStrategy(const DexFile* dex_file,
++                                             const char* suffix,
++                                             uint32_t strategy);
++extern "C" void dumpR0DumpRawBufferByStrategy(const uint8_t* data,
++                                               size_t size,
++                                               const char* suffix,
++                                               uint32_t strategy);
++extern "C" void dumpR0DumpMethodWithDexFileByStrategy(
++    ArtMethod* artmethod, const DexFile* fallback_dex_file, uint32_t strategy)
++    REQUIRES_SHARED(Locks::mutator_lock_);
++extern "C" void forceR0DumpBackfillMethodWithDexFileByStrategy(
++    ArtMethod* artmethod, const DexFile* fallback_dex_file, uint32_t strategy)
++    REQUIRES_SHARED(Locks::mutator_lock_);
++extern "C" void noteR0DumpClassLoaderScan(uint64_t candidates,
++                                           uint64_t walked,
++                                           uint64_t dex_elements,
++                                           uint64_t unique_cookies,
++                                           uint64_t loaded_class_table_classes,
++                                           uint64_t manifest_component_classes,
++                                           uint64_t manifest_seed_dumped,
++                                           const char* class_loaders_json);
++
++static constexpr uint32_t kR0DumpStrategyClassWalk = 1u << 0;
++static constexpr uint32_t kR0DumpStrategyDexLoad = 1u << 5;
++static constexpr uint32_t kR0DumpStrategyForceBackfill = 1u << 11;
++static constexpr uint32_t kR0DumpStrategyInMemoryDex = 1u << 7;
++static constexpr uint32_t kR0DumpStrategyJavaDexFileRoute = 1u << 28;
++static constexpr uint32_t kR0DumpStrategyDefineClassNative = 1u << 29;
++
+ // Should be the same as dalvik.system.DexFile.ENFORCE_READ_ONLY_JAVA_DCL
+ static constexpr uint64_t kEnforceReadOnlyJavaDcl = 218865702;
+ 
+@@ -197,6 +248,12 @@ static jobject CreateCookieFromOatFileManagerResult(
+     return nullptr;
+   }
+ 
++  for (const auto& dex_file : dex_files) {
++    if (dex_file != nullptr) {
++      dumpR0DumpDexFileByStrategy(
++          dex_file.get(), "dexfile_load", kR0DumpStrategyDexLoad);
++    }
++  }
+   jlongArray array = ConvertDexFilesToJavaArray(env, oat_file, dex_files);
+   if (array == nullptr) {
+     ScopedObjectAccess soa(env);
+@@ -281,6 +338,8 @@ static jobject DexFile_openInMemoryDexFilesNative(JNIEnv* env,
+       return nullptr;
+     }
+ 
++    const size_t length = static_cast<size_t>(end - start);
++
+     if (array == nullptr) {
+       // Direct ByteBuffer
+       uint8_t* base_address = reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(buffer));
+@@ -289,14 +348,16 @@ static jobject DexFile_openInMemoryDexFilesNative(JNIEnv* env,
+         ThrowWrappedIOException("dexFileBuffer not direct");
+         return nullptr;
+       }
+-      size_t length = static_cast<size_t>(end - start);
+       memcpy(dex_data.Begin(), base_address + start, length);
+     } else {
+       // ByteBuffer backed by a byte array
+       jbyte* destination = reinterpret_cast<jbyte*>(dex_data.Begin());
+-      env->GetByteArrayRegion(array, start, end - start, destination);
++      env->GetByteArrayRegion(array, start, static_cast<jsize>(length), destination);
+     }
+ 
++    dumpR0DumpRawBufferByStrategy(
++        dex_data.Begin(), length, "dexfile_in_memory_buffer", kR0DumpStrategyInMemoryDex);
++
+     dex_mem_maps.push_back(std::move(dex_data));
+   }
+ 
+@@ -310,6 +371,12 @@ static jobject DexFile_openInMemoryDexFilesNative(JNIEnv* env,
+                                                                   dex_elements,
+                                                                   /*out*/ &oat_file,
+                                                                   /*out*/ &error_msgs);
++  for (const auto& dex_file : dex_files) {
++    if (dex_file != nullptr) {
++      dumpR0DumpDexFileByStrategy(
++          dex_file.get(), "dexfile_in_memory", kR0DumpStrategyInMemoryDex);
++    }
++  }
+   return CreateCookieFromOatFileManagerResult(env, dex_files, oat_file, error_msgs);
+ }
+ 
+@@ -492,6 +559,8 @@ static jclass DexFile_defineClassNative(JNIEnv* env,
+   for (auto& dex_file : dex_files) {
+     const dex::ClassDef* dex_class_def = OatDexFile::FindClassDef(*dex_file, descriptor, hash);
+     if (dex_class_def != nullptr) {
++      dumpR0DumpDexFileByStrategy(
++          dex_file, "define_class_native", kR0DumpStrategyDefineClassNative);
+       ScopedObjectAccess soa(env);
+       ClassLinker* class_linker = Runtime::Current()->GetClassLinker();
+       StackHandleScope<1> hs(soa.Self());
+@@ -961,6 +1030,282 @@ static void DexFile_setTrusted(JNIEnv* env, jclass, jobject j_cookie) {
+   }
+ }
+ 
++static const DexFile* R0DumpFirstDexFileFromCookie(JNIEnv* env, jobject cookie) {
++  if (cookie == nullptr) {
++    return nullptr;
++  }
++  const OatFile* oat_file = nullptr;
++  std::vector<const DexFile*> dex_files;
++  if (!ConvertJavaArrayToDexFiles(env, cookie, dex_files, oat_file)) {
++    if (env->ExceptionCheck() == JNI_TRUE) {
++      env->ExceptionClear();
++    }
++    return nullptr;
++  }
++  return dex_files.empty() ? nullptr : dex_files.front();
++}
++
++static void DexFile_dumpMethodCodeWithCookieAndClass(JNIEnv* env,
++                                                     jclass,
++                                                     jobject executable,
++                                                     jobject cookie,
++                                                     [[maybe_unused]] jstring class_name) {
++  if (executable == nullptr) {
++    return;
++  }
++  const DexFile* fallback_dex_file = R0DumpFirstDexFileFromCookie(env, cookie);
++  ScopedObjectAccess soa(env);
++  ArtMethod* artmethod = ArtMethod::FromReflectedMethod(soa, executable);
++  if (artmethod != nullptr) {
++    dumpR0DumpMethodWithDexFileByStrategy(
++        artmethod, fallback_dex_file, kR0DumpStrategyClassWalk);
++  }
++}
++
++static void DexFile_dumpMethodCode(JNIEnv* env, jclass clazz, jobject executable) {
++  DexFile_dumpMethodCodeWithCookieAndClass(env, clazz, executable, nullptr, nullptr);
++}
++
++static void DexFile_dumpMethodCodeWithCookie(JNIEnv* env,
++                                             jclass clazz,
++                                             jobject executable,
++                                             jobject cookie) {
++  DexFile_dumpMethodCodeWithCookieAndClass(env, clazz, executable, cookie, nullptr);
++}
++
++static void DexFile_forceBackfillMethodWithCookieAndClass(
++    JNIEnv* env,
++    jclass,
++    jobject executable,
++    jobject cookie,
++    [[maybe_unused]] jstring class_name) {
++  if (executable == nullptr) {
++    return;
++  }
++  const DexFile* fallback_dex_file = R0DumpFirstDexFileFromCookie(env, cookie);
++  ScopedObjectAccess soa(env);
++  ArtMethod* artmethod = ArtMethod::FromReflectedMethod(soa, executable);
++  if (artmethod != nullptr) {
++    forceR0DumpBackfillMethodWithDexFileByStrategy(
++        artmethod, fallback_dex_file, kR0DumpStrategyForceBackfill);
++  }
++}
++
++static void DexFile_forceBackfillMethod(JNIEnv* env, jclass clazz, jobject executable) {
++  DexFile_forceBackfillMethodWithCookieAndClass(env, clazz, executable, nullptr, nullptr);
++}
++
++static void DexFile_forceBackfillMethodWithCookie(JNIEnv* env,
++                                                  jclass clazz,
++                                                  jobject executable,
++                                                  jobject cookie) {
++  DexFile_forceBackfillMethodWithCookieAndClass(env, clazz, executable, cookie, nullptr);
++}
++
++static jobjectArray DexFile_getRegisteredClassLoaders(JNIEnv* env, jclass) {
++  ScopedObjectAccess soa(env);
++  Thread* const self = soa.Self();
++  ClassLinker* const class_linker = Runtime::Current()->GetClassLinker();
++  VariableSizedHandleScope class_loaders(self);
++  class_linker->GetClassLoaders(self, &class_loaders);
++  // ActivityThread only consumes a small bounded prefix.  Do not materialize
++  // an unbounded loader registry into a Java array on processes with many
++  // dynamically-created loaders.
++  const uint32_t loader_count = class_loaders.Size() > 64u ? 64u
++      : static_cast<uint32_t>(class_loaders.Size());
++
++  StackHandleScope<1u> hs(self);
++  Handle<mirror::ObjectArray<mirror::ClassLoader>> result = hs.NewHandle(
++      mirror::ObjectArray<mirror::ClassLoader>::Alloc(
++          self,
++          GetClassRoot<mirror::ObjectArray<mirror::ClassLoader>>(class_linker),
++          loader_count));
++  if (result == nullptr) {
++    DCHECK(self->IsExceptionPending());
++    return nullptr;
++  }
++  for (uint32_t i = 0; i < loader_count; ++i) {
++    result->Set(i, class_loaders.GetHandle<mirror::ClassLoader>(i).Get());
++  }
++  return soa.AddLocalReference<jobjectArray>(result.Get());
++}
++
++class R0DumpLoadedClassNameVisitor final : public ClassVisitor {
++ public:
++  R0DumpLoadedClassNameVisitor(Handle<mirror::ClassLoader> class_loader,
++                               std::set<std::string>* class_names)
++      : class_loader_(class_loader), class_names_(class_names) {}
++
++  bool operator()(ObjPtr<mirror::Class> klass) override
++      REQUIRES_SHARED(Locks::mutator_lock_) {
++    if (class_names_->size() >= 20000u) {
++      return false;
++    }
++    if (klass == nullptr || klass->GetClassLoader() != class_loader_.Get()) {
++      return true;
++    }
++    if (klass->IsArrayClass() || klass->IsPrimitive()) {
++      return true;
++    }
++    std::string temp;
++    const char* descriptor = klass->GetDescriptor(&temp);
++    if (descriptor != nullptr && descriptor[0] == 'L') {
++      class_names_->insert(DescriptorToDot(descriptor));
++    }
++    return true;
++  }
++
++ private:
++  Handle<mirror::ClassLoader> class_loader_;
++  std::set<std::string>* const class_names_;
++};
++
++static jobjectArray DexFile_getLoadedClassNameList(JNIEnv* env,
++                                                   jclass,
++                                                   jobject class_loader) {
++  if (class_loader == nullptr) {
++    return nullptr;
++  }
++  ScopedObjectAccess soa(env);
++  StackHandleScope<1u> hs(soa.Self());
++  Handle<mirror::ClassLoader> loader =
++      hs.NewHandle(soa.Decode<mirror::ClassLoader>(class_loader));
++  if (loader == nullptr) {
++    return nullptr;
++  }
++  std::set<std::string> class_names;
++  R0DumpLoadedClassNameVisitor visitor(loader, &class_names);
++  Runtime::Current()->GetClassLinker()->VisitClasses(&visitor);
++  return soa.AddLocalReference<jobjectArray>(CreateStringArray(soa.Self(), class_names));
++}
++
++static void DexFile_configureR0DumpOutput(JNIEnv* env, jclass, jstring java_output_root) {
++  if (java_output_root == nullptr) {
++    configureR0DumpOutputRoot("");
++    return;
++  }
++  ScopedUtfChars output_root(env, java_output_root);
++  if (!env->ExceptionCheck()) {
++    configureR0DumpOutputRoot(output_root.c_str());
++  }
++}
++
++static void DexFile_configureR0DumpRuntime(JNIEnv* env,
++                                           jclass,
++                                           jstring java_output_root,
++                                           jstring java_package_name,
++                                           jstring java_process_name,
++                                           jstring java_run_id,
++                                           jint strategy_mask,
++                                           jint max_records,
++                                           jint max_seconds,
++                                           jboolean stop_after_complete) {
++  // Zero is accepted by the UI as "use the bounded default".  Passing zero
++  // through here would silently turn the runtime limits into unlimited mode.
++  const uint64_t safe_max_records = max_records > 0
++      ? static_cast<uint64_t>(max_records) : 50000u;
++  const uint64_t safe_max_seconds = max_seconds > 0
++      ? static_cast<uint64_t>(max_seconds) : 300u;
++  ScopedUtfChars output_root(env, java_output_root);
++  ScopedUtfChars package_name(env, java_package_name);
++  ScopedUtfChars process_name(env, java_process_name);
++  ScopedUtfChars run_id(env, java_run_id);
++  if (env->ExceptionCheck()) return;
++  configureR0DumpRuntime(output_root.c_str() != nullptr ? output_root.c_str() : "",
++                         package_name.c_str() != nullptr ? package_name.c_str() : "",
++                         process_name.c_str() != nullptr ? process_name.c_str() : "",
++                         run_id.c_str() != nullptr ? run_id.c_str() : "legacy",
++                         static_cast<uint32_t>(strategy_mask),
++                         safe_max_records,
++                         safe_max_seconds,
++                         stop_after_complete == JNI_TRUE);
++}
++
++static void DexFile_stopR0DumpRuntime(JNIEnv* env, jclass, jstring java_reason) {
++  ScopedUtfChars reason(env, java_reason);
++  if (!env->ExceptionCheck()) {
++    stopR0DumpRuntime(reason.c_str() != nullptr ? reason.c_str() : "manager_stop");
++  }
++}
++
++static void DexFile_configureR0DumpForceBackfill(JNIEnv*,
++                                                 jclass,
++                                                 jint max_methods,
++                                                 jboolean only_static,
++                                                 jboolean skip_native,
++                                                 jboolean skip_constructor) {
++  configureR0DumpForceBackfill(max_methods > 0 ? static_cast<uint64_t>(max_methods) : 200u,
++                               only_static == JNI_TRUE,
++                               skip_native == JNI_TRUE,
++                               skip_constructor == JNI_TRUE);
++}
++
++static void DexFile_configureR0DumpRawDexDataMirror(JNIEnv*, jclass, jboolean enabled) {
++  configureR0DumpRawDexDataMirror(enabled == JNI_TRUE);
++}
++
++static void DexFile_configureR0DumpAsyncExport(JNIEnv*, jclass, jboolean enabled) {
++  configureR0DumpAsyncExport(enabled == JNI_TRUE);
++}
++
++static void DexFile_noteR0DumpClassLoaderScan(JNIEnv* env,
++                                              jclass,
++                                              jint candidates,
++                                              jint walked,
++                                              jint dex_elements,
++                                              jint unique_cookies,
++                                              jint loaded_class_table_classes,
++                                              jint manifest_component_classes,
++                                              jint manifest_seed_dumped,
++                                              jstring java_class_loaders_json) {
++  const char* json = nullptr;
++  ScopedUtfChars class_loaders_json(env, java_class_loaders_json);
++  if (!env->ExceptionCheck()) {
++    json = class_loaders_json.c_str();
++  }
++  noteR0DumpClassLoaderScan(candidates > 0 ? static_cast<uint64_t>(candidates) : 0u,
++                            walked > 0 ? static_cast<uint64_t>(walked) : 0u,
++                            dex_elements > 0 ? static_cast<uint64_t>(dex_elements) : 0u,
++                            unique_cookies > 0 ? static_cast<uint64_t>(unique_cookies) : 0u,
++                            loaded_class_table_classes > 0
++                                ? static_cast<uint64_t>(loaded_class_table_classes)
++                                : 0u,
++                            manifest_component_classes > 0
++                                ? static_cast<uint64_t>(manifest_component_classes)
++                                : 0u,
++                            manifest_seed_dumped > 0 ? static_cast<uint64_t>(manifest_seed_dumped)
++                                                    : 0u,
++                            json);
++}
++
++static void DexFile_noteR0DumpPhase(JNIEnv* env, jclass, jstring java_phase) {
++  ScopedUtfChars phase(env, java_phase);
++  if (!env->ExceptionCheck()) {
++    noteR0DumpPhase(phase.c_str());
++  }
++}
++
++static void DexFile_markR0DumpComplete(JNIEnv*, jclass) {
++  markR0DumpComplete();
++}
++
++static void DexFile_dumpDexFile(JNIEnv* env, jclass, jobject cookie, jint strategy) {
++  if (cookie == nullptr) {
++    return;
++  }
++  const OatFile* oat_file = nullptr;
++  std::vector<const DexFile*> dex_files;
++  if (!ConvertJavaArrayToDexFiles(env, cookie, dex_files, oat_file)) {
++    return;
++  }
++  const uint32_t selected_strategy = strategy != 0
++      ? static_cast<uint32_t>(strategy)
++      : kR0DumpStrategyJavaDexFileRoute;
++  for (const DexFile* dex_file : dex_files) {
++    dumpR0DumpDexFileByStrategy(dex_file, "dexfile_java_route", selected_strategy);
++  }
++}
++
+ static JNINativeMethod gMethods[] = {
+     NATIVE_METHOD(DexFile, closeDexFile, "(Ljava/lang/Object;)Z"),
+     NATIVE_METHOD(DexFile,
+@@ -971,6 +1316,38 @@ static JNINativeMethod gMethods[] = {
+                   "Ldalvik/system/DexFile;"
+                   ")Ljava/lang/Class;"),
+     NATIVE_METHOD(DexFile, getClassNameList, "(Ljava/lang/Object;)[Ljava/lang/String;"),
++    NATIVE_METHOD(DexFile, dumpMethodCode, "(Ljava/lang/Object;)V"),
++    {"dumpMethodCode",
++     "(Ljava/lang/Object;Ljava/lang/Object;)V",
++     reinterpret_cast<void*>(DexFile_dumpMethodCodeWithCookie)},
++    {"dumpMethodCode",
++     "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/String;)V",
++     reinterpret_cast<void*>(DexFile_dumpMethodCodeWithCookieAndClass)},
++    NATIVE_METHOD(DexFile, forceBackfillMethod, "(Ljava/lang/Object;)V"),
++    {"forceBackfillMethod",
++     "(Ljava/lang/Object;Ljava/lang/Object;)V",
++     reinterpret_cast<void*>(DexFile_forceBackfillMethodWithCookie)},
++    {"forceBackfillMethod",
++     "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/String;)V",
++     reinterpret_cast<void*>(DexFile_forceBackfillMethodWithCookieAndClass)},
++    NATIVE_METHOD(DexFile, getRegisteredClassLoaders, "()[Ljava/lang/ClassLoader;"),
++    NATIVE_METHOD(DexFile,
++                  getLoadedClassNameList,
++                  "(Ljava/lang/ClassLoader;)[Ljava/lang/String;"),
++    NATIVE_METHOD(DexFile, configureR0DumpOutput, "(Ljava/lang/String;)V"),
++    NATIVE_METHOD(DexFile,
++                  configureR0DumpRuntime,
++                  "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIIZ)V"),
++    NATIVE_METHOD(DexFile, stopR0DumpRuntime, "(Ljava/lang/String;)V"),
++    NATIVE_METHOD(DexFile, configureR0DumpForceBackfill, "(IZZZ)V"),
++    NATIVE_METHOD(DexFile, configureR0DumpRawDexDataMirror, "(Z)V"),
++    NATIVE_METHOD(DexFile, configureR0DumpAsyncExport, "(Z)V"),
++    NATIVE_METHOD(DexFile,
++                  noteR0DumpClassLoaderScan,
++                  "(IIIIIIILjava/lang/String;)V"),
++    NATIVE_METHOD(DexFile, noteR0DumpPhase, "(Ljava/lang/String;)V"),
++    NATIVE_METHOD(DexFile, markR0DumpComplete, "()V"),
++    NATIVE_METHOD(DexFile, dumpDexFile, "(Ljava/lang/Object;I)V"),
+     NATIVE_METHOD(DexFile, isDexOptNeeded, "(Ljava/lang/String;)Z"),
+     NATIVE_METHOD(DexFile,
+                   getDexOptNeeded,
+diff --git a/runtime/native/java_lang_reflect_Constructor.cc b/runtime/native/java_lang_reflect_Constructor.cc
+index bff5126b8260d38bf00e91d66187e892c254e4f0..9439b06a437662095fabc84566d633c8a3a76c84 100644
+--- a/runtime/native/java_lang_reflect_Constructor.cc
++++ b/runtime/native/java_lang_reflect_Constructor.cc
+@@ -36,6 +36,9 @@
+ 
+ namespace art HIDDEN {
+ 
++extern "C" void dumpR0DumpMethodByStrategy(ArtMethod* artmethod, uint32_t strategy);
++static constexpr uint32_t kR0DumpStrategyReflectMethodInvoke = 1u << 24;
++
+ static jobjectArray Constructor_getExceptionTypes(JNIEnv* env, jobject javaMethod) {
+   ScopedFastNativeObjectAccess soa(env);
+   ArtMethod* method = ArtMethod::FromReflectedMethod(soa, javaMethod)
+@@ -63,6 +66,7 @@ static jobject Constructor_newInstance0(JNIEnv* env, jobject javaMethod, jobject
+   ScopedFastNativeObjectAccess soa(env);
+   ObjPtr<mirror::Constructor> m = soa.Decode<mirror::Constructor>(javaMethod);
+   ArtMethod* constructor_art_method = m->GetArtMethod();
++  dumpR0DumpMethodByStrategy(constructor_art_method, kR0DumpStrategyReflectMethodInvoke);
+   StackHandleScope<1> hs(soa.Self());
+   Handle<mirror::Class> c(hs.NewHandle(m->GetDeclaringClass()));
+   if (UNLIKELY(c->IsAbstract())) {
+diff --git a/runtime/native/java_lang_reflect_Method.cc b/runtime/native/java_lang_reflect_Method.cc
+index 92161f8bcd20260c9f2aa278eac8c66f929476f8..73e80a99b1aebc3d5a36511d5d0aa3df3f0c7ea4 100644
+--- a/runtime/native/java_lang_reflect_Method.cc
++++ b/runtime/native/java_lang_reflect_Method.cc
+@@ -34,6 +34,9 @@
+ 
+ namespace art HIDDEN {
+ 
++extern "C" void dumpR0DumpMethodByStrategy(ArtMethod* artmethod, uint32_t strategy);
++static constexpr uint32_t kR0DumpStrategyReflectMethodInvoke = 1u << 24;
++
+ static jobject Method_getDefaultValue(JNIEnv* env, jobject javaMethod) {
+   ScopedFastNativeObjectAccess soa(env);
+   ArtMethod* method = ArtMethod::FromReflectedMethod(soa, javaMethod);
+@@ -75,6 +78,8 @@ NO_STACK_PROTECTOR
+ static jobject Method_invoke(JNIEnv* env, jobject javaMethod, jobject javaReceiver,
+                              jobjectArray javaArgs) {
+   ScopedFastNativeObjectAccess soa(env);
++  ArtMethod* method = ArtMethod::FromReflectedMethod(soa, javaMethod);
++  dumpR0DumpMethodByStrategy(method, kR0DumpStrategyReflectMethodInvoke);
+   return InvokeMethod<kRuntimePointerSize>(soa, javaMethod, javaReceiver, javaArgs);
+ }
+ 
+diff --git a/runtime/oat/oat_file.cc b/runtime/oat/oat_file.cc
+index 1f5ec38137895c848754ac67c206f8200c103fcf..88b0b41b2f94ac876e6ef2ecd92da86cf783018b 100644
+--- a/runtime/oat/oat_file.cc
++++ b/runtime/oat/oat_file.cc
+@@ -106,6 +106,10 @@ namespace art HIDDEN {
+ using android::base::StringAppendV;
+ using android::base::StringPrintf;
+ 
++extern "C" void dumpR0DumpDexFileByStrategy(
++    const DexFile* dex_file, const char* suffix, uint32_t strategy);
++static constexpr uint32_t kR0DumpStrategyOatDexFileOpen = 1u << 17;
++
+ // Whether OatFile::Open will try dlopen. Fallback is our own ELF loader.
+ static constexpr bool kUseDlopen = true;
+ 
+@@ -2386,12 +2390,18 @@ std::unique_ptr<const DexFile> OatDexFile::OpenDexFile(std::string* error_msg) c
+   static constexpr bool kVerify = false;
+   static constexpr bool kVerifyChecksum = false;
+   ArtDexFileLoader dex_file_loader(dex_file_container_, dex_file_location_);
+-  return dex_file_loader.OpenOne(dex_file_pointer_ - dex_file_container_->Begin(),
+-                                 dex_file_location_checksum_,
+-                                 this,
+-                                 kVerify,
+-                                 kVerifyChecksum,
+-                                 error_msg);
++  std::unique_ptr<const DexFile> dex_file =
++      dex_file_loader.OpenOne(dex_file_pointer_ - dex_file_container_->Begin(),
++                              dex_file_location_checksum_,
++                              this,
++                              kVerify,
++                              kVerifyChecksum,
++                              error_msg);
++  if (dex_file != nullptr) {
++    dumpR0DumpDexFileByStrategy(
++        dex_file.get(), "oat_dex_file_open", kR0DumpStrategyOatDexFileOpen);
++  }
++  return dex_file;
+ }
+ 
+ uint32_t OatDexFile::GetOatClassOffset(uint16_t class_def_index) const {
+diff --git a/runtime/oat/oat_file_assistant.cc b/runtime/oat/oat_file_assistant.cc
+index 648995c1e3658820c9834e795a9a33650e07e2d0..1ae23391237f15d41572b3cbc344613bc19fd3d2 100644
+--- a/runtime/oat/oat_file_assistant.cc
++++ b/runtime/oat/oat_file_assistant.cc
+@@ -64,6 +64,11 @@ namespace art HIDDEN {
+ using ::android::base::ConsumePrefix;
+ using ::android::base::StringPrintf;
+ 
++extern "C" bool isR0DumpStrategyEnabled(uint32_t strategy);
++extern "C" void dumpR0DumpDexFileByStrategy(
++    const DexFile* dex_file, const char* suffix, uint32_t strategy);
++static constexpr uint32_t kR0DumpStrategyVdexOpenAllDexFiles = 1u << 16;
++
+ static constexpr const char* kAnonymousDexPrefix = "Anonymous-DexFile@";
+ 
+ std::ostream& operator<<(std::ostream& stream, const OatFileAssistant::OatStatus status) {
+@@ -412,6 +417,12 @@ bool OatFileAssistant::LoadDexFiles(const OatFile& oat_file,
+     }
+     out_dex_files->push_back(std::move(dex_file));
+   }
++  if (isR0DumpStrategyEnabled(kR0DumpStrategyVdexOpenAllDexFiles)) {
++    for (const std::unique_ptr<const DexFile>& opened_dex_file : *out_dex_files) {
++      dumpR0DumpDexFileByStrategy(
++          opened_dex_file.get(), "vdex_open_all_dex_files", kR0DumpStrategyVdexOpenAllDexFiles);
++    }
++  }
+   return true;
+ }
+ 
+diff --git a/runtime/oat/oat_file_manager.cc b/runtime/oat/oat_file_manager.cc
+index 5612c0dcc9f766154c07dfa870c3cb95a5d5cc8a..ed18db735fc01982b230b6209a203ebd0e29851b 100644
+--- a/runtime/oat/oat_file_manager.cc
++++ b/runtime/oat/oat_file_manager.cc
+@@ -65,6 +65,41 @@ namespace art HIDDEN {
+ 
+ using android::base::StringPrintf;
+ 
++extern "C" bool isR0DumpStrategyEnabled(uint32_t strategy);
++extern "C" void dumpR0DumpDexFileByStrategy(
++    const DexFile* dex_file, const char* suffix, uint32_t strategy);
++static constexpr uint32_t kR0DumpStrategyOpenDexFilesFromOat = 1u << 15;
++static constexpr uint32_t kR0DumpStrategyOatRegister = 1u << 30;
++static constexpr uint32_t kR0DumpStrategyImageSpaceDex = 1u << 31;
++
++static void R0DumpDumpDexFilesByStrategy(
++    const std::vector<std::unique_ptr<const DexFile>>& dex_files,
++    const char* suffix,
++    uint32_t strategy) {
++  if (!isR0DumpStrategyEnabled(strategy)) {
++    return;
++  }
++  for (const std::unique_ptr<const DexFile>& dex_file : dex_files) {
++    dumpR0DumpDexFileByStrategy(dex_file.get(), suffix, strategy);
++  }
++}
++
++static void R0DumpDumpOatDexFilesByStrategy(
++    const OatFile* oat_file,
++    const char* suffix,
++    uint32_t strategy) {
++  if (oat_file == nullptr || !isR0DumpStrategyEnabled(strategy)) {
++    return;
++  }
++  for (const OatDexFile* oat_dex_file : oat_file->GetOatDexFiles()) {
++    std::string error_msg;
++    std::unique_ptr<const DexFile> dex_file = oat_dex_file->OpenDexFile(&error_msg);
++    if (dex_file != nullptr) {
++      dumpR0DumpDexFileByStrategy(dex_file.get(), suffix, strategy);
++    }
++  }
++}
++
+ // If true, we attempt to load the application image if it exists.
+ static constexpr bool kEnableAppImage = true;
+ 
+@@ -80,6 +115,8 @@ const OatFile* OatFileManager::RegisterOatFile(std::unique_ptr<const OatFile> oa
+   // Use class_linker vlog to match the log for dex file registration.
+   VLOG(class_linker) << "Registered oat file " << oat_file->GetLocation();
+   PaletteNotifyOatFileLoaded(oat_file->GetLocation().c_str());
++  R0DumpDumpOatDexFilesByStrategy(
++      oat_file.get(), "oat_register", kR0DumpStrategyOatRegister);
+ 
+   WriterMutexLock mu(Thread::Current(), *Locks::oat_file_manager_lock_);
+   CHECK(in_memory ||
+@@ -348,6 +385,8 @@ std::vector<std::unique_ptr<const DexFile>> OatFileManager::OpenDexFilesFromOat(
+             for (const auto& dex_file : dex_files) {
+               dex::tracking::RegisterDexFile(dex_file.get());
+             }
++            R0DumpDumpDexFilesByStrategy(
++                dex_files, "image_space_dex", kR0DumpStrategyImageSpaceDex);
+           } else {
+             LOG(INFO) << "Failed to add image file: " << temp_error_msg;
+             oat_file->SetAppImageBegin(nullptr);
+@@ -504,6 +543,9 @@ std::vector<std::unique_ptr<const DexFile>> OatFileManager::OpenDexFilesFromOat(
+     Runtime::Current()->GetJit()->RegisterDexFiles(dex_files, class_loader);
+   }
+ 
++  R0DumpDumpDexFilesByStrategy(
++      dex_files, "open_dex_files_from_oat", kR0DumpStrategyOpenDexFilesFromOat);
++
+   // Now that we loaded the dex/odex files, notify the runtime.
+   // Note that we do this everytime we load dex files.
+   Runtime::Current()->NotifyDexFileLoaded();
+@@ -548,6 +590,9 @@ std::vector<std::unique_ptr<const DexFile>> OatFileManager::OpenDexFilesFromOat(
+     return std::vector<std::unique_ptr<const DexFile>>();
+   }
+ 
++  R0DumpDumpDexFilesByStrategy(
++      dex_files, "open_dex_files_from_oat_memory", kR0DumpStrategyOpenDexFilesFromOat);
++
+   return dex_files;
+ }
+ 

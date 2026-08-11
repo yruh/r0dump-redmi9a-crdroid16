@@ -1,0 +1,16 @@
+diff --git a/headers/Makefile b/headers/Makefile
+index 2627208e241e546ee453975204a96152746f4079..42164379015cd19aadb9ce474f83d4a995c32c2b 100644
+--- a/headers/Makefile
++++ b/headers/Makefile
+@@ -3,8 +3,9 @@ VERSION = 4
+ PATCHLEVEL = 19
+ 
+ headers_install:
+-	@mkdir -p $(O)/usr
+-	@rsync -mrq $(shell pwd)/* $(O)/
++	@mkdir -p $(O)/usr/include
++	@rsync -a include/uapi/ $(O)/usr/include/
++	@rsync -a arch/$(ARCH)/include/uapi/ $(O)/usr/include/
+ 
+ all:
+ 	@true

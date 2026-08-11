@@ -1,0 +1,53 @@
+diff --git a/config/common.mk b/config/common.mk
+index a6910ad6c718669bd484e334344fc512e2923fbe..fa28e7b819fedeed686afd83a1dd619813290510 100644
+--- a/config/common.mk
++++ b/config/common.mk
+@@ -307,6 +307,11 @@ PRODUCT_EXTRA_RECOVERY_KEYS += \
+ 
+ include vendor/lineage/config/version.mk
+ 
++# Runtime gate for the R0DUMP ART hooks.  ActivityThread also falls back to
++# Build.IS_DEBUGGABLE, but the explicit property makes image integration
++# deterministic across build variants.
++PRODUCT_SYSTEM_PROPERTIES += persist.r0dump.build_enabled=true
++
+ -include vendor/lineage-priv/keys/keys.mk
+ 
+ -include $(WORKSPACE)/build_env/image-auto-bits.mk
+diff --git a/config/version.mk b/config/version.mk
+index 2ee2d5d4db1e3978fb6fd3f3ba7ab91cb4aa57ed..8ee575b590e24b1a9c5c89a144db356c73359c05 100644
+--- a/config/version.mk
++++ b/config/version.mk
+@@ -8,10 +8,11 @@ CR_VERSION := 12.11
+ LINEAGE_VERSION := crDroidAndroid-$(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR)-$(shell date +%Y%m%d)-$(LINEAGE_BUILD)-v$(CR_VERSION)
+ 
+ # Display version
+-LINEAGE_DISPLAY_VERSION := v$(CR_VERSION)-$(shell date +%Y%m%d)
++LINEAGE_DISPLAY_VERSION := R0DUMP_16
+ 
+ # LineageOS version properties
+ PRODUCT_PRODUCT_PROPERTIES += \
+     ro.crdroid.build.version=$(CR_VERSION) \
+     ro.crdroid.display.version=$(LINEAGE_DISPLAY_VERSION) \
+-    ro.crdroid.version=$(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR)
++    ro.crdroid.version=$(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR) \
++    ro.lineage.display.version=$(LINEAGE_DISPLAY_VERSION)
+diff --git a/tools/clean_headers.sh b/tools/clean_headers.sh
+index 44053a312060993860d96a5d2f0ac407130472bd..99ed78b6995f56f9e50cfc6cf38e66537557df83 100755
+--- a/tools/clean_headers.sh
++++ b/tools/clean_headers.sh
+@@ -2,7 +2,12 @@
+ set -eu
+ 
+ export ANDROID_BUILD_TOP="$PWD"
++export PYTHONPATH="$ANDROID_BUILD_TOP/prebuilts/clang/host/linux-x86/clang-stable/lib/python3/site-packages${PYTHONPATH:+:$PYTHONPATH}"
++
++headers_dir="$1/usr/include"
++mapfile -d '' headers < <(find "$headers_dir" -type f -printf '%P\0' | sort -z)
+ 
+ ./bionic/libc/kernel/tools/clean_header.py -u \
+-    "$1/usr/include/asm/signal.h" \
+-    "$1/usr/include/asm-generic/signal.h"
++    -k "$headers_dir" \
++    -d "$headers_dir" \
++    "${headers[@]}"

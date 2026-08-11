@@ -1,0 +1,243 @@
+diff --git a/Android.bp b/Android.bp
+index 10ae2c0c2cd58bc1fdd3d4e1d737fdfbe7c8ddbb..8fcfa5e7dc7a266fa7f8a90302574bfab026956c 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -20,6 +20,8 @@ prebuilt_hidl_interfaces {
+     name: "hidl_mtkcodecservice_interface",
+     interfaces: [
+         "vendor.mediatek.hardware.mtkcodecservice@1.1::IMtkCodecService",
++    ],
++}
+ 
+ prebuilt_hidl_interfaces {
+     name: "hidl_mms_interface",
+diff --git a/BoardConfig.mk b/BoardConfig.mk
+index 726ad09aa2b87d2f8ca8718f09202614f901b130..a767d279638d88f6cf7470ceef87ab4fc9dea5da 100644
+--- a/BoardConfig.mk
++++ b/BoardConfig.mk
+@@ -63,6 +63,7 @@ TARGET_RECOVERY_DEVICE_MODULES := libinit_blossom
+ MALLOC_LOW_MEMORY := true
+ 
+ # Kernel
++TARGET_KERNEL_SOURCE := $(DEVICE_PATH)-kernel/headers
+ TARGET_KERNEL_CONFIG := blossom_defconfig # no file, only make build system happy
+ TARGET_PREBUILT_KERNEL := $(DEVICE_PATH)-kernel/kernel # automatically copied
+ TARGET_PREBUILT_DTB := $(DEVICE_PATH)-kernel/dtb.img # for mkbootimg only
+diff --git a/device.mk b/device.mk
+index 18b48c33ebadb94873d500d862691fb974450575..b4f58b3fef1d2646667830dd6c0ef29afd0892f3 100644
+--- a/device.mk
++++ b/device.mk
+@@ -6,9 +6,28 @@
+ 
+ DEVICE_PATH := device/xiaomi/blossom
+ 
++# APEX
++# The prebuilt 4.19 kernel does not support EROFS.
++PRODUCT_DEFAULT_APEX_PAYLOAD_TYPE := ext4
++
+ # Enable userspace reboot
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/userspace_reboot.mk)
+ 
++# Keep legacy telephony blobs compatible with the Android 16 boot classpath.
++$(call inherit-product, hardware/lineage/compat/frameworks/compat.mk)
++$(call inherit-product, hardware/mediatek/frameworks/mediatek-frameworks.mk)
++
++# The proprietary IMS service directly references these framework classes and
++# cannot load them through the experimental shared-library declarations alone.
++# mediatek-common is already registered by mediatek-frameworks.mk above.
++PRODUCT_BOOT_JARS += \
++    mediatek-framework \
++    mediatek-ims-base \
++    mediatek-ims-common \
++    mediatek-telecom-common \
++    mediatek-telephony-base \
++    mediatek-telephony-common
++
+ # Dynamic Partitions
+ PRODUCT_USE_DYNAMIC_PARTITIONS := true
+ PRODUCT_BUILD_SUPER_PARTITION := false
+@@ -32,6 +51,11 @@ WITH_DEXPREOPT_DEBUG_INFO := false
+ DONT_DEXPREOPT_PREBUILTS := true
+ PRODUCT_ENFORCE_VINTF_MANIFEST := false
+ 
++# Android 16 trunk drops FCM 5 from its default matrix set, but this device
++# still declares target-level 5.
++PRODUCT_PACKAGES += \
++    framework_compatibility_matrix.5.xml
++
+ # Disable kernel requirement enforcement for VINTF compatibility
+ PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS := false
+ 
+@@ -82,6 +106,16 @@ PRODUCT_DEFAULT_PROPERTY_OVERRIDES := \
+     persist.adb.nonblocking_ffs=0 \
+     ro.adb.nonblocking_ffs=0
+ 
++# Use the device-specific USB gadget init script instead of the generic
++# MediaTek prebuilt, which otherwise has the same install name.
++$(call soong_config_set_bool,mediatek_gadget,use_custom_usb_gadget_rc,true)
++$(call soong_config_set_bool,fingerprint_hidl,use_vendor_fingerprint_service,true)
++
++# System-side R0DUMP controller and its privileged permission whitelist.
++PRODUCT_PACKAGES += \
++    R0DUMPManager \
++    privapp_permissions_com_android_r0dumpmanager
++
+ # Rootdir
+ PRODUCT_PACKAGES += \
+     fstab.mt6765 \
+@@ -97,12 +131,7 @@ PRODUCT_PACKAGES += \
+     init.project.rc \
+     init.sensor_1_0.rc \
+     ueventd.mtk.rc \
+-    init.mt6765.volte.rc \
+-    init.angelica.volte.rc \
+-    init.angelican.volte.rc \
+-    init.angelicain.volte.rc \
+-    init.cattail.volte.rc \
+-    init.cattail.volte.rc
++    init.mt6765.volte.rc
+ 
+ # Recovery
+ PRODUCT_PACKAGES += \
+@@ -147,7 +176,6 @@ PRODUCT_PACKAGES += \
+     libaudioroute.vendor
+ 
+ PRODUCT_PACKAGES += \
+-    BesLoudness \
+     MtkInCallService
+ 
+ PRODUCT_COPY_FILES += \
+@@ -238,6 +266,7 @@ PRODUCT_COPY_FILES += \
+ 
+ # VNDK
+ PRODUCT_PACKAGES += \
++    libhidlbase-v32.vendor \
+     libutils-v32 \
+     libui-v32
+ 
+@@ -282,8 +311,7 @@ PRODUCT_PACKAGES += \
+     android.hardware.camera.device@3.6.vendor \
+     android.hardware.camera.provider@2.4.vendor \
+     android.hardware.camera.provider@2.5.vendor \
+-    android.hardware.camera.provider@2.6.vendor \
+-    libshim_utils
++    android.hardware.camera.provider@2.6.vendor
+ 
+ PRODUCT_PACKAGES += \
+     libcamera_metadata.vendor \
+@@ -300,8 +328,7 @@ PRODUCT_COPY_FILES += \
+ # Thermal
+ PRODUCT_PACKAGES += \
+     android.hardware.thermal@1.0.vendor \
+-    android.hardware.thermal@2.0.vendor \
+-    android.hardware.thermal@1.0-impl
++    android.hardware.thermal@2.0.vendor
+ 
+ # Power
+ PRODUCT_PACKAGES += \
+@@ -486,6 +513,7 @@ PRODUCT_PACKAGES += \
+ # Shims
+ PRODUCT_PACKAGES += \
+     libprocessgroup_shim \
++    libshim_base \
+     libshim_audio \
+     libshim_beanpod \
+     libshim_sensors \
+diff --git a/extract-files.sh b/extract-files.sh
+index 34f4f6d3a9ed295831b5a6bf0e8e25d567b73ac1..c797be15eb916b387fff6c320329ec50e0aa1ccd 100644
+--- a/extract-files.sh
++++ b/extract-files.sh
+@@ -59,8 +59,18 @@ function blob_fixup() {
+             grep -q "libprotobuf-cpp-lite-3.9.1.so" "${2}" && \
+             "${PATCHELF}" --replace-needed "libprotobuf-cpp-lite-3.9.1.so" "libprotobuf-cpp-full-3.9.1.so" "${2}"
+             ;;
+-        vendor/bin/hw/android.hardware.thermal@2.0-service.mtk)
+-            "${PATCHELF}" --replace-needed "libhidlbase.so" "libhidlbase-v32.so" "${2}"
++        vendor/lib*/libnvram.so)
++            grep -q "libshim_base.so" "${2}" || "${PATCHELF}" --add-needed "libshim_base.so" "${2}"
++            ;;
++        vendor/lib*/libsysenv.so)
++            grep -q "libshim_base.so" "${2}" || "${PATCHELF}" --add-needed "libshim_base.so" "${2}"
++            ;;
++        vendor/bin/hw/android.hardware.thermal@2.0-service.mtk | \
++        vendor/lib*/hw/android.hardware.thermal@2.0-impl.so)
++            grep -q "libhidlbase.so" "${2}" && \
++                "${PATCHELF}" --replace-needed "libhidlbase.so" "libhidlbase-v32.so" "${2}"
++            grep -q "libutils.so" "${2}" && \
++                "${PATCHELF}" --replace-needed "libutils.so" "libutils-v32.so" "${2}"
+             ;;
+         vendor/bin/mnld | vendor/lib*/libaalservice.so | vendor/lib*/libcam.utils.sensorprovider.so)
+             grep -q "libshim_sensors.so" "$2" || "$PATCHELF" --add-needed "libshim_sensors.so" "$2"
+diff --git a/framework_compatibility_matrix.xml b/framework_compatibility_matrix.xml
+index ed5188f0fb85542f29b5f91ea67517b8d905ead0..3e84f602789a8df5cfbcdc2e0794ffcdab5ad2b6 100644
+--- a/framework_compatibility_matrix.xml
++++ b/framework_compatibility_matrix.xml
+@@ -99,6 +99,14 @@
+             <instance>default</instance>
+         </interface>
+     </hal>
++    <hal format="hidl" optional="true">
++        <name>android.hardware.memtrack</name>
++        <version>1.0</version>
++        <interface>
++            <name>IMemtrack</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
+     <hal format="aidl" optional="true">
+         <name>android.hardware.power</name>
+         <interface>
+diff --git a/rootdir/etc/init.mt6762.rc b/rootdir/etc/init.mt6762.rc
+index e932c3f7754ad99dc9128733f484257b71a4ccdd..d2c4936f8ef6593d39b9a744d8b6baf6e6f374a3 100644
+--- a/rootdir/etc/init.mt6762.rc
++++ b/rootdir/etc/init.mt6762.rc
+@@ -715,6 +715,22 @@ service vendor.samsung_nfc_hal_service /vendor/bin/hw/android.hardware.nfc@1.2-s
+ on property:sys.boot_completed=1
+     # initialize powerHAL when boot is completed
+     setprop vendor.powerhal.init 1
++    stop blossom-bootlog
++
++# Opt-in boot log for diagnosing framework startup on userdebug builds.
++on property:persist.r0dump.bootlog=1
++    rm /cache/blossom-boot.log
++    start blossom-bootlog
++
++on property:persist.r0dump.bootlog=0
++    stop blossom-bootlog
++
++service blossom-bootlog /system/bin/logcat -b all -v threadtime -f /cache/blossom-boot.log -r 32768 -n 1 *:V
++    disabled
++    class core
++    user root
++    group root log readproc
++    seclabel u:r:su:s0
+ 
+ service vendor.charger /system/bin/charger
+     class charger
+diff --git a/rootdir/etc/init.mt6765.rc b/rootdir/etc/init.mt6765.rc
+index e932c3f7754ad99dc9128733f484257b71a4ccdd..d2c4936f8ef6593d39b9a744d8b6baf6e6f374a3 100644
+--- a/rootdir/etc/init.mt6765.rc
++++ b/rootdir/etc/init.mt6765.rc
+@@ -715,6 +715,22 @@ service vendor.samsung_nfc_hal_service /vendor/bin/hw/android.hardware.nfc@1.2-s
+ on property:sys.boot_completed=1
+     # initialize powerHAL when boot is completed
+     setprop vendor.powerhal.init 1
++    stop blossom-bootlog
++
++# Opt-in boot log for diagnosing framework startup on userdebug builds.
++on property:persist.r0dump.bootlog=1
++    rm /cache/blossom-boot.log
++    start blossom-bootlog
++
++on property:persist.r0dump.bootlog=0
++    stop blossom-bootlog
++
++service blossom-bootlog /system/bin/logcat -b all -v threadtime -f /cache/blossom-boot.log -r 32768 -n 1 *:V
++    disabled
++    class core
++    user root
++    group root log readproc
++    seclabel u:r:su:s0
+ 
+ service vendor.charger /system/bin/charger
+     class charger

@@ -1,0 +1,85 @@
+diff --git a/cc/lto.go b/cc/lto.go
+index d8d8dccdc43000403b61a130ff47124b732b757c..8e0cb5b5c166049131f99d51e228c9add2655762 100644
+--- a/cc/lto.go
++++ b/cc/lto.go
+@@ -91,7 +91,7 @@ func (lto *lto) begin(ctx BaseModuleContext) {
+ 	ltoEnabled := ltoDefault
+ 	if lto.Never() {
+ 		ltoEnabled = false
+-	} else if lto.ThinLTO() {
++	} else if lto.ThinLTO() && !ctx.Config().IsEnvTrue("DISABLE_LTO") {
+ 		// Module explicitly requests for LTO.
+ 		ltoEnabled = true
+ 	} else if ctx.testBinary() || ctx.testLibrary() {
+diff --git a/cmd/sbox/sbox.go b/cmd/sbox/sbox.go
+index 466c8831295babd42a5570f56ad289d9d5e05161..054ec5b1f782ee7a9ddd3c43ad9a14308ea494b9 100644
+--- a/cmd/sbox/sbox.go
++++ b/cmd/sbox/sbox.go
+@@ -226,6 +226,18 @@ func createEnv(command *sbox_proto.Command) ([]string, error) {
+ 	if command.DontInheritEnv == nil || !*command.DontInheritEnv {
+ 		env = os.Environ()
+ 	}
++	// JDK 21's Unix NIO loader requires a UTF-8 locale when sbox runs with a
++	// deliberately minimal environment (dont_inherit_env).
++	hasLang := false
++	for _, value := range env {
++		if strings.HasPrefix(value, "LANG=") {
++			hasLang = true
++			break
++		}
++	}
++	if !hasLang {
++		env = append(env, "LANG=C.UTF-8")
++	}
+ 	for _, envVar := range command.Env {
+ 		if envVar.Name == nil || !envVarNameRegex.MatchString(*envVar.Name) {
+ 			name := "nil"
+diff --git a/scripts/gen_build_prop.py b/scripts/gen_build_prop.py
+index 8885ae6de58ad354ef684c1548ae4cc8c2f9605e..977d6653a6cdb23a9d8b93e4f2a7b9c249f42061 100644
+--- a/scripts/gen_build_prop.py
++++ b/scripts/gen_build_prop.py
+@@ -40,6 +40,14 @@ def get_build_flavor(product_config):
+ def get_build_keys(product_config):
+   return "release-keys"
+ 
++def get_r0dump_display_id(config):
++  for prop in config.get("PRODUCT_PRODUCT_PROPERTIES", []):
++    if prop.startswith("ro.lineage.display.version="):
++      value = prop.split("=", 1)[1]
++      if value.startswith("R0DUMP_"):
++        return value.replace("_", " ")
++  return None
++
+ def override_config(config):
+   if "PRODUCT_BUILD_PROP_OVERRIDES" in config:
+     current_key = None
+@@ -201,8 +209,11 @@ def generate_build_info(args):
+ 
+   print(f"ro.build.id?={config['BuildId']}")
+ 
+-  # ro.build.display.id is shown under Settings -> About Phone
+-  if config["BuildVariant"] != "eng":
++  # ro.build.display.id is shown under Settings -> About Phone.
++  r0dump_display_id = get_r0dump_display_id(config)
++  if r0dump_display_id:
++    print(f"ro.build.display.id?={r0dump_display_id}")
++  elif config["BuildVariant"] != "eng":
+     # User builds should show:
+     # release build number or branch.buld_number non-release builds
+ 
+diff --git a/ui/build/soong.go b/ui/build/soong.go
+index c9b303c5bf7c217ebe362c788810a4e031e26333..21f4f852f6b270ac0949fe4b55d869e1055b9f49 100644
+--- a/ui/build/soong.go
++++ b/ui/build/soong.go
+@@ -226,6 +226,11 @@ func (pb PrimaryBuilderFactory) primaryBuilderInvocation(config Config) bootstra
+ 
+ 	commonArgs = append(commonArgs, "-l", filepath.Join(pb.config.FileListDir(), "Android.bp.list"))
+ 	invocationEnv := make(map[string]string)
++	for _, name := range []string{"GOGC", "GOMEMLIMIT", "GOMAXPROCS"} {
++		if value := os.Getenv(name); value != "" {
++			invocationEnv[name] = value
++		}
++	}
+ 	if pb.debugPort != "" {
+ 		//debug mode
+ 		commonArgs = append(commonArgs, "--delve_listen", pb.debugPort,

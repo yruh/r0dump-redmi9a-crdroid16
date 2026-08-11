@@ -1,0 +1,22 @@
+diff --git a/base/android/jni_generator/jni_generator.py b/base/android/jni_generator/jni_generator.py
+index b5bbe1b9ad28ecb2bb235528013db1ba4cf1f7c2..647ffa145983e3f62306de6ed66841b2105509b0 100755
+--- a/base/android/jni_generator/jni_generator.py
++++ b/base/android/jni_generator/jni_generator.py
+@@ -1325,12 +1325,13 @@ def WriteOutput(output_file, content):
+ 
+ def GetScriptName():
+   script_components = os.path.abspath(sys.argv[0]).split(os.path.sep)
+-  base_index = 0
+   for idx, value in enumerate(script_components):
+     if value == 'base' or value == 'third_party':
+-      base_index = idx
+-      break
+-  return os.sep.join(script_components[base_index:])
++      return os.sep.join(script_components[idx:])
++  # Soong packages this script into a launcher whose absolute path may contain
++  # non-ASCII bytes decoded with surrogateescape. Keep generated headers
++  # reproducible and UTF-8 encodable when the source-relative path is absent.
++  return 'base/android/jni_generator/jni_generator.py'
+ 
+ 
+ def main(argv):

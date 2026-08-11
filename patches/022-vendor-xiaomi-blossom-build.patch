@@ -1,0 +1,111 @@
+diff --git a/Android.bp b/Android.bp
+index 0cabefefbd329ea9256792f8764f478753bd5f77..63e876c137173b1135490ae743de59bf0d5ea3f3 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -1350,11 +1350,11 @@ cc_prebuilt_library_shared {
+ 	target: {
+ 		android_arm: {
+ 			srcs: ["proprietary/vendor/lib/libnvram.so"],
+-			shared_libs: ["libcutils", "libcustom_nvram", "libnvram_platform", "libbase", "liblog", "libnvram_sec", "libc++", "libc", "libm", "libdl", ],
++			shared_libs: ["libcutils", "libcustom_nvram", "libnvram_platform", "libbase", "libshim_base", "liblog", "libnvram_sec", "libc++", "libc", "libm", "libdl", ],
+ 		},
+ 		android_arm64: {
+ 			srcs: ["proprietary/vendor/lib64/libnvram.so"],
+-			shared_libs: ["libcutils", "libcustom_nvram", "libnvram_platform", "libbase", "liblog", "libnvram_sec", "libc++", "libc", "libm", "libdl", ],
++			shared_libs: ["libcutils", "libcustom_nvram", "libnvram_platform", "libbase", "libshim_base", "liblog", "libnvram_sec", "libc++", "libc", "libm", "libdl", ],
+ 		},
+ 	},
+ 	compile_multilib: "both",
+@@ -1698,27 +1698,6 @@ cc_prebuilt_library_shared {
+ 	soc_specific: true,
+ }
+ 
+-cc_prebuilt_library_shared {
+-	name: "vendor.mediatek.hardware.bluetooth.audio@2.1",
+-	owner: "xiaomi",
+-	strip: {
+-		none: true,
+-	},
+-	target: {
+-		android_arm: {
+-			srcs: ["proprietary/vendor/lib/vendor.mediatek.hardware.bluetooth.audio@2.1.so"],
+-			shared_libs: ["android.hardware.audio.common@5.0", "android.hidl.safe_union@1.0", "libhidlbase", "liblog", "libutils", "libcutils", "libc++", "libc", "libm", "libdl", ],
+-		},
+-		android_arm64: {
+-			srcs: ["proprietary/vendor/lib64/vendor.mediatek.hardware.bluetooth.audio@2.1.so"],
+-			shared_libs: ["android.hardware.audio.common@5.0", "android.hidl.safe_union@1.0", "libhidlbase", "liblog", "libutils", "libcutils", "libc++", "libc", "libm", "libdl", ],
+-		},
+-	},
+-	compile_multilib: "both",
+-	prefer: true,
+-	soc_specific: true,
+-}
+-
+ cc_prebuilt_library_shared {
+ 	name: "vendor.mediatek.hardware.gpu@1.0",
+ 	owner: "xiaomi",
+@@ -7306,7 +7285,7 @@ cc_prebuilt_library_shared {
+ 	target: {
+ 		android_arm: {
+ 			srcs: ["proprietary/vendor/lib/libsysenv.so"],
+-			shared_libs: ["liblog", "libbase", "libc++", "libc", "libm", "libdl", ],
++			shared_libs: ["liblog", "libbase", "libshim_base", "libc++", "libc", "libm", "libdl", ],
+ 		},
+ 	},
+ 	compile_multilib: "32",
+@@ -8870,7 +8849,9 @@ cc_prebuilt_binary {
+ }
+ 
+ cc_prebuilt_binary {
+-	name: "android.hardware.biometrics.fingerprint@2.1-service",
++	name: "android.hardware.biometrics.fingerprint@2.1-service_blossom",
++	stem: "android.hardware.biometrics.fingerprint@2.1-service",
++	overrides: ["android.hardware.biometrics.fingerprint@2.1-service"],
+ 	owner: "xiaomi",
+ 	target: {
+ 		android_arm: {
+@@ -9984,4 +9965,3 @@ cc_prebuilt_binary {
+ 	prefer: true,
+ 	system_ext_specific: true,
+ }
+-
+diff --git a/blossom-vendor.mk b/blossom-vendor.mk
+index 8f7c16786c248d41e3ceb487cc57757fc51a7d51..53efcdf32b9d71e03d2eeeb5ff581c05e114e0cc 100644
+--- a/blossom-vendor.mk
++++ b/blossom-vendor.mk
+@@ -7,6 +7,7 @@ PRODUCT_SOONG_NAMESPACES += \
+ 
+ PRODUCT_COPY_FILES += \
+     vendor/xiaomi/blossom/proprietary/system_ext/etc/init/init.vtservice.rc:$(TARGET_COPY_OUT_SYSTEM_EXT)/etc/init/init.vtservice.rc \
++    vendor/xiaomi/blossom/proprietary/vendor/bin/hw/android.hardware.thermal@2.0-service.mtk:$(TARGET_COPY_OUT_VENDOR)/bin/hw/android.hardware.thermal@2.0-service.mtk \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/.tp/.ht120.mtc:$(TARGET_COPY_OUT_VENDOR)/etc/.tp/.ht120.mtc \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/.tp/.thermal_policy_00:$(TARGET_COPY_OUT_VENDOR)/etc/.tp/.thermal_policy_00 \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/.tp/.thermal_policy_03:$(TARGET_COPY_OUT_VENDOR)/etc/.tp/.thermal_policy_03 \
+@@ -61,6 +62,7 @@ PRODUCT_COPY_FILES += \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/init/android.hardware.graphics.allocator@4.0-service-mediatek.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/android.hardware.graphics.allocator@4.0-service-mediatek.rc \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/init/android.hardware.keymaster@4.0-service.beanpod.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/android.hardware.keymaster@4.0-service.beanpod.rc \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/init/android.hardware.sensors@2.0-service-mediatek.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/android.hardware.sensors@2.0-service-mediatek.rc \
++    vendor/xiaomi/blossom/proprietary/vendor/etc/init/android.hardware.thermal@2.0-service.mtk.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/android.hardware.thermal@2.0-service.mtk.rc \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/init/camerahalserver.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/camerahalserver.rc \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/init/fuelgauged_init.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/fuelgauged_init.rc \
+     vendor/xiaomi/blossom/proprietary/vendor/etc/init/fuelgauged_nvram_init.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/fuelgauged_nvram_init.rc \
+@@ -154,6 +156,10 @@ PRODUCT_COPY_FILES += \
+     vendor/xiaomi/blossom/proprietary/vendor/firmware/soc3_0_ram_mcu_1a_1_hdr.bin:$(TARGET_COPY_OUT_VENDOR)/firmware/soc3_0_ram_mcu_1a_1_hdr.bin \
+     vendor/xiaomi/blossom/proprietary/vendor/firmware/soc3_0_ram_mcu_e1_hdr.bin:$(TARGET_COPY_OUT_VENDOR)/firmware/soc3_0_ram_mcu_e1_hdr.bin \
+     vendor/xiaomi/blossom/proprietary/vendor/lib/egl/egl.cfg:$(TARGET_COPY_OUT_VENDOR)/lib/egl/egl.cfg \
++    vendor/xiaomi/blossom/proprietary/vendor/lib/hw/android.hardware.thermal@2.0-impl.so:$(TARGET_COPY_OUT_VENDOR)/lib/hw/android.hardware.thermal@2.0-impl.so \
++    vendor/xiaomi/blossom/proprietary/vendor/lib/hw/thermal_hal.so:$(TARGET_COPY_OUT_VENDOR)/lib/hw/thermal_hal.so \
++    vendor/xiaomi/blossom/proprietary/vendor/lib64/hw/android.hardware.thermal@2.0-impl.so:$(TARGET_COPY_OUT_VENDOR)/lib64/hw/android.hardware.thermal@2.0-impl.so \
++    vendor/xiaomi/blossom/proprietary/vendor/lib64/hw/thermal_hal.so:$(TARGET_COPY_OUT_VENDOR)/lib64/hw/thermal_hal.so \
+     vendor/xiaomi/blossom/proprietary/vendor/lib/mibokeh_mt6768_opencl.bin:$(TARGET_COPY_OUT_VENDOR)/lib/mibokeh_mt6768_opencl.bin \
+     vendor/xiaomi/blossom/proprietary/vendor/thh/ta/04190000000000000000000000000000.ta:$(TARGET_COPY_OUT_VENDOR)/thh/ta/04190000000000000000000000000000.ta \
+     vendor/xiaomi/blossom/proprietary/vendor/thh/ta/08010203000000000000000000000000.ta:$(TARGET_COPY_OUT_VENDOR)/thh/ta/08010203000000000000000000000000.ta \
+@@ -671,7 +677,7 @@ PRODUCT_PACKAGES += \
+     fuelgauged \
+     fuelgauged_nvram \
+     gsm0710muxd \
+-    android.hardware.biometrics.fingerprint@2.1-service \
++    android.hardware.biometrics.fingerprint@2.1-service_blossom \
+     android.hardware.bluetooth@1.0-service-mediatek \
+     android.hardware.drm@1.4-service.widevine \
+     android.hardware.gnss@2.1-service-mediatek \

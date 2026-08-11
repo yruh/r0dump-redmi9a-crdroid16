@@ -1,0 +1,24 @@
+# project	revision	upstream
+art	663e2bf7bf7cc369618c402c5a7d9ff5fee169cd	https://github.com/crdroidandroid/android_art
+libcore	e73339d0561d165a6645317ce2f48bacc57daec9	https://github.com/crdroidandroid/android_libcore
+frameworks/base	708e793e39322960e8f61edf2028aa30b07901fe	https://github.com/crdroidandroid/android_frameworks_base
+vendor/lineage	fb3c549801c0ead93efed6108130e13685eac0c5	https://github.com/crdroidandroid/android_vendor_crdroid
+packages/apps/Settings	57f8d3535b5f5586d58956c04ca06b78fae5f278	https://github.com/crdroidandroid/android_packages_apps_Settings
+bionic	f07a44043af5acf02019fca65ce9a508271d2d24	https://github.com/crdroidandroid/android_bionic
+build/make	f677d2036225433caad8444896f9578f5c4b5c66	https://github.com/crdroidandroid/android_build
+build/soong	0cabbb4b4f9131a4d341974adf0cbcaa8b15ace0	https://github.com/crdroidandroid/android_build_soong
+system/sepolicy	f2ea82107dc0915ce709c76d9cbd31e65d253a2b	https://github.com/crdroidandroid/android_system_sepolicy
+device/mediatek/sepolicy_vndr	26287b7bac45c3d268f3a57d388a2f8f4fbc5db1	https://github.com/crdroidandroid/android_device_mediatek_sepolicy_vndr
+device/xiaomi/blossom	7fbb5673df67f3477fdd56c763b71036dea1ba3b	https://github.com/crdroidandroid/android_device_xiaomi_blossom
+device/xiaomi/blossom-kernel	cb7a4a655315913bee0aa618f0aadf37eae14672	https://github.com/crdroidandroid/android_kernel_xiaomi_blossom
+hardware/interfaces	6e2d52e80d128070f671d52514ecdd28482c72c5	https://github.com/crdroidandroid/android_hardware_interfaces
+hardware/mediatek	731bd1dfed86f7cfaacc8557fb23f2442c69ea4b	https://github.com/crdroidandroid/android_hardware_mediatek
+frameworks/av	2598b568888069f73551f4502181eccb21066215	https://github.com/crdroidandroid/android_frameworks_av
+packages/modules/Bluetooth	01d58e9e450877fa5cc9779882736de967f7a950	https://github.com/crdroidandroid/android_packages_modules_Bluetooth
+packages/apps/Launcher3	e19eb92f2e8d863e6ee9f041d768496bc16151f5	https://github.com/crdroidandroid/android_packages_apps_Launcher3
+external/XMP-Toolkit-SDK	83f7b87cad246ed89c6c7cc66bfcfeeccec6cc99	https://android.googlesource.com/platform/external/XMP-Toolkit-SDK
+external/google-highway	12062ba78328dac793dcec57c63865ab480f1f18	https://android.googlesource.com/platform/external/google-highway
+external/libchrome	b6d25f9bf679b5dee1af847d14a3573d9fcb768f	https://android.googlesource.com/platform/external/libchrome
+external/skia	22f5edb6c1bf350d1d9d67bb429db1a5539f3c05	https://android.googlesource.com/platform/external/skia
+vendor/xiaomi/blossom	10391e9bc7c3b251a9ee2acccb2fc46bb86b8ef5	https://github.com/crdroidandroid/proprietary_vendor_xiaomi_blossom
+

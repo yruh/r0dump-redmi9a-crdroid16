@@ -1,0 +1,8 @@
+builddir = out
+
+# Soong assigns a few memory-heavy links to this pool.  Keeping it at one lets
+# regular compilation retain -j8 without running multiple large links at once.
+pool highmem_pool
+  depth = 1
+
+subninja out/soong/build.lineage_blossom.ninja

@@ -1,0 +1,1272 @@
+diff --git a/core/java/android/app/ActivityThread.java b/core/java/android/app/ActivityThread.java
+index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4867949d6 100644
+--- a/core/java/android/app/ActivityThread.java
++++ b/core/java/android/app/ActivityThread.java
+@@ -109,6 +109,7 @@ import android.content.res.ResourceTimer;
+ import android.content.res.Resources;
+ import android.content.res.ResourcesImpl;
+ import android.content.res.loader.ResourcesLoader;
++import android.database.ContentObserver;
+ import android.database.sqlite.SQLiteDatabase;
+ import android.database.sqlite.SQLiteDebug;
+ import android.database.sqlite.SQLiteDebug.DbStats;
+@@ -269,7 +270,9 @@ import com.android.server.am.MemInfoDumpProto;
+ import dalvik.annotation.optimization.NeverCompile;
+ import dalvik.annotation.optimization.NeverInline;
+ import dalvik.system.AppSpecializationHooks;
++import dalvik.system.BaseDexClassLoader;
+ import dalvik.system.CloseGuard;
++import dalvik.system.DexFile;
+ import dalvik.system.VMDebug;
+ import dalvik.system.VMRuntime;
+ import dalvik.system.ZipPathValidator;
+@@ -287,7 +290,9 @@ import java.io.IOException;
+ import java.io.PrintWriter;
+ import java.lang.ref.WeakReference;
+ import java.lang.reflect.Executable;
++import java.lang.reflect.Field;
+ import java.lang.reflect.Method;
++import java.lang.reflect.Modifier;
+ import java.net.InetAddress;
+ import java.nio.file.DirectoryStream;
+ import java.nio.file.Files;
+@@ -303,6 +308,7 @@ import java.util.Objects;
+ import java.util.Set;
+ import java.util.TimeZone;
+ import java.util.concurrent.Executor;
++import java.util.concurrent.atomic.AtomicBoolean;
+ import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.function.Consumer;
+ import java.util.stream.Collectors;
+@@ -345,6 +351,69 @@ public final class ActivityThread extends ClientTransactionHandler
+     private static final boolean DEBUG_PROVIDER = false;
+     public static final boolean DEBUG_ORDER = false;
+     private static final boolean DEBUG_APP_INFO = false;
++    private static final String R0DUMP_LOG_TAG = "[R0DUMP]";
++    private static final String R0DUMP_SETTING_ENABLED = "r0dump.dump.enabled";
++    private static final String R0DUMP_SETTING_GLOBAL_RUNTIME_ENABLED =
++            "r0dump.dump.global_runtime_enabled";
++    private static final String R0DUMP_SETTING_TARGET_PACKAGE = "r0dump.dump.target_package";
++    private static final String R0DUMP_SETTING_OUTPUT_ROOT = "r0dump.dump.output_root";
++    private static final String R0DUMP_SETTING_DELAY_MS = "r0dump.dump.delay_ms";
++    private static final String R0DUMP_SETTING_TARGET_PROCESS = "r0dump.dump.target_process";
++    private static final String R0DUMP_SETTING_CLASS_PREFIX = "r0dump.dump.class_prefix";
++    private static final String R0DUMP_SETTING_MAX_METHODS = "r0dump.dump.max_methods";
++    private static final String R0DUMP_SETTING_DUMP_CONSTRUCTORS =
++            "r0dump.dump.dump_constructors";
++    private static final String R0DUMP_SETTING_DUMP_METHODS = "r0dump.dump.dump_methods";
++    private static final String R0DUMP_SETTING_STRATEGY_MASK = "r0dump.dump.strategy_mask";
++    private static final String R0DUMP_SETTING_MAX_RECORDS = "r0dump.dump.max_records";
++    private static final String R0DUMP_SETTING_MAX_SECONDS = "r0dump.dump.max_seconds";
++    private static final String R0DUMP_SETTING_STOP_AFTER_COMPLETE =
++            "r0dump.dump.stop_after_complete";
++    private static final String R0DUMP_SETTING_FORCE_BACKFILL_ENABLED =
++            "r0dump.dump.force_backfill.enabled";
++    private static final String R0DUMP_SETTING_FORCE_BACKFILL_MAX_METHODS =
++            "r0dump.dump.force_backfill.max_methods";
++    private static final String R0DUMP_SETTING_FORCE_BACKFILL_ONLY_STATIC =
++            "r0dump.dump.force_backfill.only_static";
++    private static final String R0DUMP_SETTING_FORCE_BACKFILL_SKIP_NATIVE =
++            "r0dump.dump.force_backfill.skip_native";
++    private static final String R0DUMP_SETTING_FORCE_BACKFILL_SKIP_CONSTRUCTOR =
++            "r0dump.dump.force_backfill.skip_constructor";
++    private static final String R0DUMP_SETTING_FORCE_BACKFILL_CLASS_PREFIX =
++            "r0dump.dump.force_backfill.class_prefix";
++    private static final String R0DUMP_SETTING_RAW_DEXDATA_MIRROR_ENABLED =
++            "r0dump.dump.raw_dexdata_mirror.enabled";
++    private static final String R0DUMP_SETTING_ASYNC_EXPORT_ENABLED =
++            "r0dump.dump.async_export.enabled";
++    private static final String R0DUMP_SETTING_RUN_ID = "r0dump.dump.run_id";
++    private static final String R0DUMP_SETTING_CLASS_WALK_MODE = "r0dump.dump.class_walk_mode";
++    private static final String R0DUMP_SETTING_CLASS_WALK_THREADS =
++            "r0dump.dump.class_walk.threads";
++    private static final String R0DUMP_SETTING_PROCESS_MODE = "r0dump.dump.process_mode";
++    private static final String R0DUMP_SETTING_ART_CLASSLOADER_SCAN_ENABLED =
++            "r0dump.dump.art_classloader_scan.enabled";
++    private static final String R0DUMP_SETTING_LOADED_CLASS_TABLE_SCAN_ENABLED =
++            "r0dump.dump.loaded_class_table_scan.enabled";
++    private static final String R0DUMP_SETTING_MANIFEST_COMPONENT_SEED_ENABLED =
++            "r0dump.dump.manifest_component_seed.enabled";
++    private static final String R0DUMP_PROPERTY_BUILD_ENABLED = "persist.r0dump.build_enabled";
++    private static final String R0DUMP_PROCESS_MODE_MAIN_ONLY = "main_only";
++    private static final String R0DUMP_PROCESS_MODE_EXACT = "exact";
++    private static final String R0DUMP_PROCESS_MODE_ALL = "all";
++    private static final String R0DUMP_CLASS_WALK_LOAD_ALL = "load_all";
++    private static final int R0DUMP_STRATEGY_CLASS_WALK = 1 << 0;
++    private static final int R0DUMP_STRATEGY_APP_CREATE = 1 << 1;
++    private static final int R0DUMP_STRATEGY_ACTIVITY_CREATE = 1 << 2;
++    private static final int R0DUMP_STRATEGY_FORCE_BACKFILL = 1 << 11;
++    private static final int R0DUMP_STRATEGY_IN_MEMORY_DEX = 1 << 7;
++    private static final int R0DUMP_STRATEGY_DEFINE_CLASS = 1 << 8;
++    private static final int R0DUMP_STRATEGY_JAVA_DEXFILE_ROUTE = 1 << 28;
++    private static final int R0DUMP_DEFAULT_STRATEGY_MASK =
++            R0DUMP_STRATEGY_CLASS_WALK | (1 << 1) | (1 << 2) | (1 << 7) | (1 << 8);
++    private static final int R0DUMP_MAX_CLASS_LOADERS = 8;
++    private static final int R0DUMP_MAX_CLASS_NAMES = 20000;
++    private static final int R0DUMP_DEFAULT_MAX_RECORDS = 50000;
++    private static final int R0DUMP_DEFAULT_MAX_SECONDS = 300;
+     private static final long MIN_TIME_BETWEEN_GCS = 5*1000;
+     /**
+      * The delay to release the provider when it has no more references. It reduces the number of
+@@ -413,6 +482,74 @@ public final class ActivityThread extends ClientTransactionHandler
+ 
+     @UnsupportedAppUsage
+     private ContextImpl mSystemContext;
++    private final AtomicBoolean mR0DumpClassWalkStarted = new AtomicBoolean();
++    private final AtomicInteger mR0DumpConfigGeneration = new AtomicInteger();
++    private static final Set<String> R0DUMP_REFLECTION_FAILURES = new ArraySet<>();
++    private volatile R0DumpProcessConfig mR0DumpProcessConfig;
++    private volatile String mR0DumpConfiguredFingerprint = "";
++    private ContentObserver mR0DumpSettingsObserver;
++
++    private static final class R0DumpProcessConfig {
++        boolean enabled;
++        boolean globalRuntimeEnabled;
++        String runId = "";
++        String targetPackage = "";
++        String targetProcess = "";
++        String processMode = R0DUMP_PROCESS_MODE_MAIN_ONLY;
++        String outputRoot = "/sdcard/Download/R0DUMP";
++        String classPrefix = "";
++        String classWalkMode = R0DUMP_CLASS_WALK_LOAD_ALL;
++        int classWalkThreads = 1;
++        int delayMs = 60000;
++        int maxMethods;
++        int maxRecords;
++        int maxSeconds;
++        int strategyMask = R0DUMP_DEFAULT_STRATEGY_MASK;
++        boolean dumpConstructors = true;
++        boolean dumpMethods = true;
++        boolean stopAfterComplete = true;
++        boolean forceBackfillEnabled;
++        int forceBackfillMaxMethods;
++        String forceBackfillClassPrefix = "";
++        boolean forceBackfillOnlyStatic = true;
++        boolean forceBackfillSkipNative = true;
++        boolean forceBackfillSkipConstructor = true;
++        boolean rawDexDataMirrorEnabled;
++        boolean asyncExportEnabled;
++        boolean artClassLoaderScanEnabled = true;
++        boolean loadedClassTableScanEnabled = true;
++        boolean manifestComponentSeedEnabled = true;
++
++        String fingerprint(String packageName, String processName) {
++            return runId + '\n' + packageName + '\n' + processName + '\n' + processMode + '\n'
++                    + targetPackage + '\n' + targetProcess + '\n' + outputRoot + '\n'
++                    + delayMs + '\n' + classPrefix + '\n' + classWalkMode + '\n'
++                    + classWalkThreads + '\n' + maxMethods + '\n' + maxRecords + '\n'
++                    + maxSeconds + '\n' + strategyMask + '\n' + dumpConstructors + '\n'
++                    + dumpMethods + '\n' + stopAfterComplete + '\n' + forceBackfillEnabled + '\n'
++                    + forceBackfillMaxMethods + '\n' + forceBackfillClassPrefix + '\n'
++                    + forceBackfillOnlyStatic + '\n'
++                    + forceBackfillSkipNative + '\n' + forceBackfillSkipConstructor + '\n'
++                    + rawDexDataMirrorEnabled + '\n' + asyncExportEnabled + '\n'
++                    + artClassLoaderScanEnabled + '\n' + loadedClassTableScanEnabled + '\n'
++                    + manifestComponentSeedEnabled;
++        }
++    }
++
++    private static final class R0DumpWalkStats {
++        int candidates;
++        int walked;
++        int dexElements;
++        int uniqueCookies;
++        int loadedClassTableClasses;
++        int manifestComponentClasses;
++        int manifestSeedDumped;
++        int walkedClassCount;
++        int dumpedMethodCount;
++        int forceBackfillCount;
++        final Set<Object> seenCookies = Collections.newSetFromMap(
++                new java.util.IdentityHashMap<Object, Boolean>());
++    }
+     @GuardedBy("this")
+     private ArrayList<WeakReference<Context>> mDisplaySystemUiContexts;
+ 
+@@ -4491,6 +4628,8 @@ public final class ActivityThread extends ClientTransactionHandler
+                 r.mLastReportedWindowingMode = config.windowConfiguration.getWindowingMode();
+             }
+             r.setState(ON_CREATE);
++            r0dumpTriggerDexRoute(activityBaseContext, activity.getClass().getClassLoader(),
++                    r.activityInfo.packageName, R0DUMP_STRATEGY_ACTIVITY_CREATE);
+ 
+         } catch (SuperNotCalledException e) {
+             throw e;
+@@ -7816,6 +7955,691 @@ public final class ActivityThread extends ClientTransactionHandler
+         return insInfo.nativeLibraryDir;
+     }
+ 
++    private static int r0dumpReadInt(Context context, String key, int defaultValue) {
++        try {
++            return Settings.Global.getInt(context.getContentResolver(), key, defaultValue);
++        } catch (Throwable ignored) {
++            return defaultValue;
++        }
++    }
++
++    private static String r0dumpReadString(Context context, String key, String defaultValue) {
++        try {
++            String value = Settings.Global.getString(context.getContentResolver(), key);
++            return value == null ? defaultValue : value;
++        } catch (Throwable ignored) {
++            return defaultValue;
++        }
++    }
++
++    private static int r0dumpParseInt(String value, int defaultValue, int maxValue) {
++        if (value == null || value.trim().isEmpty()) {
++            return defaultValue;
++        }
++        try {
++            return Math.max(0, Math.min(maxValue, Integer.parseInt(value.trim())));
++        } catch (NumberFormatException ignored) {
++            return defaultValue;
++        }
++    }
++
++    private static boolean r0dumpPackageMatches(R0DumpProcessConfig config,
++            ApplicationInfo appInfo, String processName) {
++        if (config == null || appInfo == null || processName == null) {
++            return false;
++        }
++        final boolean global = config.globalRuntimeEnabled || "*".equals(config.targetPackage);
++        if (!global && !appInfo.packageName.equals(config.targetPackage)) {
++            return false;
++        }
++        if (R0DUMP_PROCESS_MODE_EXACT.equals(config.processMode)) {
++            return !config.targetProcess.isEmpty() && processName.equals(config.targetProcess);
++        }
++        if (R0DUMP_PROCESS_MODE_ALL.equals(config.processMode)) {
++            return true;
++        }
++        final String mainProcess = appInfo.processName == null || appInfo.processName.isEmpty()
++                ? appInfo.packageName : appInfo.processName;
++        return processName.equals(mainProcess);
++    }
++
++    private void r0dumpConfigureForProcess(Context context, ApplicationInfo appInfo,
++            String processName) {
++        if (context == null || appInfo == null || processName == null) {
++            return;
++        }
++        final R0DumpProcessConfig config = new R0DumpProcessConfig();
++        config.enabled = SystemProperties.getBoolean(R0DUMP_PROPERTY_BUILD_ENABLED,
++                Build.IS_DEBUGGABLE)
++                && r0dumpReadInt(context, R0DUMP_SETTING_ENABLED, 0) == 1;
++        config.globalRuntimeEnabled = r0dumpReadInt(
++                context, R0DUMP_SETTING_GLOBAL_RUNTIME_ENABLED, 0) == 1;
++        config.runId = r0dumpReadString(context, R0DUMP_SETTING_RUN_ID, "legacy").trim();
++        if (config.runId.isEmpty()) {
++            config.runId = "legacy";
++        }
++        config.targetPackage = r0dumpReadString(context, R0DUMP_SETTING_TARGET_PACKAGE, "").trim();
++        config.targetProcess = r0dumpReadString(context, R0DUMP_SETTING_TARGET_PROCESS, "").trim();
++        final String processMode = r0dumpReadString(context, R0DUMP_SETTING_PROCESS_MODE,
++                R0DUMP_PROCESS_MODE_MAIN_ONLY).trim();
++        config.processMode = R0DUMP_PROCESS_MODE_EXACT.equals(processMode)
++                || R0DUMP_PROCESS_MODE_ALL.equals(processMode)
++                ? processMode : R0DUMP_PROCESS_MODE_MAIN_ONLY;
++        config.outputRoot = r0dumpReadString(context, R0DUMP_SETTING_OUTPUT_ROOT,
++                "/sdcard/Download/R0DUMP").trim();
++        config.classPrefix = r0dumpReadString(context, R0DUMP_SETTING_CLASS_PREFIX, "").trim();
++        config.classWalkMode = r0dumpReadString(context, R0DUMP_SETTING_CLASS_WALK_MODE,
++                R0DUMP_CLASS_WALK_LOAD_ALL).trim();
++        config.classWalkThreads = 1;
++        config.delayMs = r0dumpParseInt(
++                r0dumpReadString(context, R0DUMP_SETTING_DELAY_MS, "60000"), 60000, 300000);
++        config.maxMethods = r0dumpParseInt(
++                r0dumpReadString(context, R0DUMP_SETTING_MAX_METHODS, "0"), 0, 1000000);
++        config.maxRecords = r0dumpParseInt(r0dumpReadString(context,
++                R0DUMP_SETTING_MAX_RECORDS, Integer.toString(R0DUMP_DEFAULT_MAX_RECORDS)),
++                R0DUMP_DEFAULT_MAX_RECORDS, 1000000);
++        config.maxSeconds = r0dumpParseInt(
++                r0dumpReadString(context, R0DUMP_SETTING_MAX_SECONDS,
++                        Integer.toString(R0DUMP_DEFAULT_MAX_SECONDS)),
++                R0DUMP_DEFAULT_MAX_SECONDS, 86400);
++        config.strategyMask = r0dumpReadInt(
++                context, R0DUMP_SETTING_STRATEGY_MASK, R0DUMP_DEFAULT_STRATEGY_MASK);
++        config.dumpConstructors = r0dumpReadInt(
++                context, R0DUMP_SETTING_DUMP_CONSTRUCTORS, 1) == 1;
++        config.dumpMethods = r0dumpReadInt(context, R0DUMP_SETTING_DUMP_METHODS, 1) == 1;
++        config.stopAfterComplete = r0dumpReadInt(
++                context, R0DUMP_SETTING_STOP_AFTER_COMPLETE, 1) == 1;
++        config.forceBackfillEnabled = r0dumpReadInt(
++                context, R0DUMP_SETTING_FORCE_BACKFILL_ENABLED, 0) == 1;
++        config.forceBackfillMaxMethods = r0dumpParseInt(r0dumpReadString(
++                context, R0DUMP_SETTING_FORCE_BACKFILL_MAX_METHODS, "200"), 200, 1000000);
++        config.forceBackfillClassPrefix = r0dumpReadString(
++                context, R0DUMP_SETTING_FORCE_BACKFILL_CLASS_PREFIX, "").trim();
++        config.forceBackfillOnlyStatic = r0dumpReadInt(
++                context, R0DUMP_SETTING_FORCE_BACKFILL_ONLY_STATIC, 1) == 1;
++        config.forceBackfillSkipNative = r0dumpReadInt(
++                context, R0DUMP_SETTING_FORCE_BACKFILL_SKIP_NATIVE, 1) == 1;
++        config.forceBackfillSkipConstructor = r0dumpReadInt(
++                context, R0DUMP_SETTING_FORCE_BACKFILL_SKIP_CONSTRUCTOR, 1) == 1;
++        config.forceBackfillOnlyStatic = true;
++        config.forceBackfillSkipNative = true;
++        config.forceBackfillSkipConstructor = true;
++        config.rawDexDataMirrorEnabled = r0dumpReadInt(
++                context, R0DUMP_SETTING_RAW_DEXDATA_MIRROR_ENABLED, 0) == 1;
++        config.asyncExportEnabled = false;
++        config.artClassLoaderScanEnabled = r0dumpReadInt(
++                context, R0DUMP_SETTING_ART_CLASSLOADER_SCAN_ENABLED, 1) == 1;
++        config.loadedClassTableScanEnabled = r0dumpReadInt(
++                context, R0DUMP_SETTING_LOADED_CLASS_TABLE_SCAN_ENABLED, 1) == 1;
++        config.manifestComponentSeedEnabled = r0dumpReadInt(
++                context, R0DUMP_SETTING_MANIFEST_COMPONENT_SEED_ENABLED, 1) == 1;
++        if (!config.enabled || !r0dumpPackageMatches(config, appInfo, processName)) {
++            mR0DumpProcessConfig = config;
++            if (!mR0DumpConfiguredFingerprint.isEmpty()) {
++                r0dumpStopDex("settings_disabled_or_target_changed");
++                mR0DumpConfiguredFingerprint = "";
++                mR0DumpClassWalkStarted.set(false);
++                mR0DumpConfigGeneration.incrementAndGet();
++            }
++            return;
++        }
++        if (config.forceBackfillEnabled
++                && config.forceBackfillClassPrefix.isEmpty()
++                && config.classPrefix.isEmpty()) {
++            Log.w(R0DUMP_LOG_TAG,
++                    "force backfill disabled because no class prefix is configured");
++            config.forceBackfillEnabled = false;
++        }
++        if (config.forceBackfillEnabled) {
++            config.strategyMask |= R0DUMP_STRATEGY_FORCE_BACKFILL;
++        }
++        final String fingerprint = config.fingerprint(appInfo.packageName, processName);
++        if (!fingerprint.equals(mR0DumpConfiguredFingerprint)) {
++            mR0DumpProcessConfig = config;
++            mR0DumpConfigGeneration.incrementAndGet();
++            mR0DumpClassWalkStarted.set(false);
++            r0dumpConfigureDex(config, appInfo.packageName, processName);
++            mR0DumpConfiguredFingerprint = fingerprint;
++        } else if (mR0DumpProcessConfig == null) {
++            mR0DumpProcessConfig = config;
++        }
++        r0dumpRegisterSettingsObserver(context, appInfo, processName);
++        Log.i(R0DUMP_LOG_TAG, "configured package=" + appInfo.packageName
++                + " process=" + processName + " mode=" + config.processMode
++                + " runId=" + config.runId + " strategy=0x"
++                + Integer.toHexString(config.strategyMask) + " delayMs=" + config.delayMs);
++    }
++
++    private void r0dumpRegisterSettingsObserver(Context context, ApplicationInfo appInfo,
++            String processName) {
++        if (mR0DumpSettingsObserver != null) {
++            return;
++        }
++        mR0DumpSettingsObserver = new ContentObserver(mH) {
++            private final Runnable mReload = () -> {
++                r0dumpConfigureForProcess(context, appInfo, processName);
++                r0dumpStartClassWalkIfNeeded(mInitialApplication);
++            };
++
++            @Override
++            public void onChange(boolean selfChange, Uri uri) {
++                // Settings.Global is written one key at a time.  Wait for the
++                // commit marker and read the final snapshot so a config save
++                // does not briefly stop an active runtime on the first write.
++                mH.removeCallbacks(mReload);
++                mH.postDelayed(mReload, 100);
++            }
++        };
++        final ContentResolver resolver = context.getContentResolver();
++        final String[] observedKeys = new String[] {
++            R0DUMP_SETTING_ENABLED, R0DUMP_SETTING_GLOBAL_RUNTIME_ENABLED,
++            R0DUMP_SETTING_TARGET_PACKAGE, R0DUMP_SETTING_OUTPUT_ROOT,
++            R0DUMP_SETTING_DELAY_MS, R0DUMP_SETTING_TARGET_PROCESS,
++            R0DUMP_SETTING_CLASS_PREFIX, R0DUMP_SETTING_MAX_METHODS,
++            R0DUMP_SETTING_DUMP_CONSTRUCTORS, R0DUMP_SETTING_DUMP_METHODS,
++            R0DUMP_SETTING_STRATEGY_MASK, R0DUMP_SETTING_MAX_RECORDS,
++            R0DUMP_SETTING_MAX_SECONDS, R0DUMP_SETTING_STOP_AFTER_COMPLETE,
++            R0DUMP_SETTING_FORCE_BACKFILL_ENABLED,
++            R0DUMP_SETTING_FORCE_BACKFILL_MAX_METHODS,
++            R0DUMP_SETTING_FORCE_BACKFILL_ONLY_STATIC,
++            R0DUMP_SETTING_FORCE_BACKFILL_SKIP_NATIVE,
++            R0DUMP_SETTING_FORCE_BACKFILL_SKIP_CONSTRUCTOR,
++            R0DUMP_SETTING_FORCE_BACKFILL_CLASS_PREFIX,
++            R0DUMP_SETTING_RAW_DEXDATA_MIRROR_ENABLED,
++            R0DUMP_SETTING_ASYNC_EXPORT_ENABLED, R0DUMP_SETTING_RUN_ID,
++            R0DUMP_SETTING_CLASS_WALK_MODE, R0DUMP_SETTING_CLASS_WALK_THREADS,
++            R0DUMP_SETTING_PROCESS_MODE, R0DUMP_SETTING_ART_CLASSLOADER_SCAN_ENABLED,
++            R0DUMP_SETTING_LOADED_CLASS_TABLE_SCAN_ENABLED,
++            R0DUMP_SETTING_MANIFEST_COMPONENT_SEED_ENABLED
++        };
++        for (String key : observedKeys) {
++            resolver.registerContentObserver(Settings.Global.getUriFor(key), false,
++                    mR0DumpSettingsObserver);
++        }
++    }
++
++    private static Field r0dumpFindField(Class<?> type, String name) throws NoSuchFieldException {
++        Class<?> current = type;
++        while (current != null) {
++            try {
++                return current.getDeclaredField(name);
++            } catch (NoSuchFieldException ignored) {
++                current = current.getSuperclass();
++            }
++        }
++        throw new NoSuchFieldException(name);
++    }
++
++    private static Object r0dumpReadField(Object object, String name) throws ReflectiveOperationException {
++        if (object == null) {
++            return null;
++        }
++        Field field = r0dumpFindField(object.getClass(), name);
++        field.setAccessible(true);
++        return field.get(object);
++    }
++
++    private static Object r0dumpInvokeDex(String name, Class<?>[] parameterTypes,
++            Object... arguments) {
++        try {
++            Method method = DexFile.class.getDeclaredMethod(name, parameterTypes);
++            method.setAccessible(true);
++            return method.invoke(null, arguments);
++        } catch (Throwable failure) {
++            synchronized (R0DUMP_REFLECTION_FAILURES) {
++                if (R0DUMP_REFLECTION_FAILURES.add(name)) {
++                    Log.w(R0DUMP_LOG_TAG, "reflection call failed: " + name, failure);
++                }
++            }
++            return null;
++        }
++    }
++
++    private static void r0dumpConfigureDex(R0DumpProcessConfig config, String packageName,
++            String processName) {
++        r0dumpInvokeDex("r0dumpConfigureRuntime",
++                new Class<?>[] {String.class, String.class, String.class, String.class,
++                        int.class, int.class, int.class, boolean.class, int.class,
++                        boolean.class, boolean.class, boolean.class, boolean.class, boolean.class},
++                config.outputRoot, packageName, processName, config.runId,
++                config.strategyMask, config.maxRecords, config.maxSeconds,
++                config.stopAfterComplete, config.forceBackfillMaxMethods,
++                config.forceBackfillOnlyStatic, config.forceBackfillSkipNative,
++                config.forceBackfillSkipConstructor, config.rawDexDataMirrorEnabled,
++                config.asyncExportEnabled);
++    }
++
++    private static void r0dumpStopDex(String reason) {
++        r0dumpInvokeDex("r0dumpStopRuntime", new Class<?>[] {String.class}, reason);
++    }
++
++    private static String r0dumpJsonEscape(String value) {
++        if (value == null) {
++            return "";
++        }
++        StringBuilder escaped = new StringBuilder(value.length() + 8);
++        for (int i = 0; i < value.length(); i++) {
++            char c = value.charAt(i);
++            switch (c) {
++                case '\\':
++                    escaped.append("\\\\");
++                    break;
++                case '"':
++                    escaped.append("\\\"");
++                    break;
++                case '\n':
++                    escaped.append("\\n");
++                    break;
++                case '\r':
++                    escaped.append("\\r");
++                    break;
++                case '\t':
++                    escaped.append("\\t");
++                    break;
++                default:
++                    if (c < 0x20) {
++                        escaped.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
++                    } else {
++                        escaped.append(c);
++                    }
++                    break;
++            }
++        }
++        return escaped.toString();
++    }
++
++    private void r0dumpStartClassWalkIfNeeded(Application app) {
++        final R0DumpProcessConfig config = mR0DumpProcessConfig;
++        final int generation = mR0DumpConfigGeneration.get();
++        if (app == null || config == null || !config.enabled
++                || (config.strategyMask & R0DUMP_STRATEGY_CLASS_WALK) == 0
++                || !r0dumpPackageMatches(config, app.getApplicationInfo(), currentProcessName())
++                || !mR0DumpClassWalkStarted.compareAndSet(false, true)) {
++            return;
++        }
++        Thread worker = new Thread(() -> {
++            boolean completed = false;
++            try {
++                if (config.delayMs > 0) {
++                    r0dumpInvokeDex("r0dumpMarkPhase",
++                            new Class<?>[] {String.class}, "waiting_delay");
++                    Thread.sleep(config.delayMs);
++                }
++                if (generation != mR0DumpConfigGeneration.get()) {
++                    return;
++                }
++                r0dumpInvokeDex("r0dumpMarkPhase",
++                        new Class<?>[] {String.class}, "class_walk");
++                completed = r0dumpWalkApplicationDex(app, config, generation);
++            } catch (InterruptedException ignored) {
++                Thread.currentThread().interrupt();
++            } catch (Throwable t) {
++                Log.e(R0DUMP_LOG_TAG, "class-walk failed", t);
++            } finally {
++                if (generation == mR0DumpConfigGeneration.get()
++                        && mR0DumpProcessConfig == config && config.enabled) {
++                    r0dumpInvokeDex("r0dumpMarkPhase", new Class<?>[] {String.class},
++                            completed ? "complete" : "class_walk_failed");
++                    if (completed) {
++                        r0dumpInvokeDex("r0dumpMarkComplete", new Class<?>[0]);
++                    }
++                }
++            }
++        }, "r0dump-class-walk");
++        worker.setDaemon(true);
++        worker.start();
++    }
++
++    /** Dump the DEX cookies already owned by a loader for an app/activity trigger. */
++    private void r0dumpDumpClassLoaderDexElements(ClassLoader loader, int strategy) {
++        if (loader == null) {
++            return;
++        }
++        try {
++            Object pathList = r0dumpReadField(loader, "pathList");
++            Object rawElements = r0dumpReadField(pathList, "dexElements");
++            if (!(rawElements instanceof Object[])) {
++                return;
++            }
++            for (Object element : (Object[]) rawElements) {
++                if (element == null) {
++                    continue;
++                }
++                Object rawDexFile = r0dumpReadField(element, "dexFile");
++                if (!(rawDexFile instanceof DexFile)) {
++                    continue;
++                }
++                Object cookie = r0dumpInvokeDex("r0dumpGetCookie",
++                        new Class<?>[] {DexFile.class}, rawDexFile);
++                if (cookie != null) {
++                    r0dumpInvokeDex("r0dumpDumpDexCookie",
++                            new Class<?>[] {Object.class, int.class}, cookie, strategy);
++                }
++            }
++        } catch (Throwable failure) {
++            Log.w(R0DUMP_LOG_TAG, "trigger DEX route failed strategy=0x"
++                    + Integer.toHexString(strategy), failure);
++        }
++    }
++
++    private void r0dumpTriggerDexRoute(Context context, ClassLoader loader,
++            String packageName, int strategy) {
++        final R0DumpProcessConfig config = mR0DumpProcessConfig;
++        if (config == null || !config.enabled
++                || (config.strategyMask & strategy) == 0
++                || context == null
++                || !r0dumpPackageMatches(config, context.getApplicationInfo(), currentProcessName())) {
++            return;
++        }
++        r0dumpInvokeDex("r0dumpMarkPhase", new Class<?>[] {String.class},
++                strategy == R0DUMP_STRATEGY_APP_CREATE ? "app_create" : "activity_create");
++        r0dumpDumpClassLoaderDexElements(loader, strategy);
++        Log.i(R0DUMP_LOG_TAG, "trigger DEX route strategy=0x"
++                + Integer.toHexString(strategy) + " package=" + packageName);
++    }
++
++    private boolean r0dumpWalkApplicationDex(Application app, R0DumpProcessConfig config,
++            int generation) {
++        final List<ClassLoader> loaders = r0dumpCollectClassLoaders(app, config);
++        final Set<String> manifestComponents = config.manifestComponentSeedEnabled
++                ? r0dumpManifestComponentNames(app) : Collections.emptySet();
++        final R0DumpWalkStats stats = new R0DumpWalkStats();
++        stats.candidates = loaders.size();
++        stats.manifestComponentClasses = manifestComponents.size();
++        final StringBuilder loaderJson = new StringBuilder("[");
++        boolean firstLoader = true;
++        boolean completed = true;
++        try {
++            for (ClassLoader loader : loaders) {
++                if (generation != mR0DumpConfigGeneration.get()) {
++                    completed = false;
++                    break;
++                }
++                final int dexBefore = stats.dexElements;
++                final int cookiesBefore = stats.uniqueCookies;
++                final boolean walked;
++                try {
++                    walked = r0dumpWalkClassLoader(
++                            loader, config, generation, manifestComponents, stats);
++                } catch (Throwable failure) {
++                    Log.w(R0DUMP_LOG_TAG, "class-loader scan failed: " + loader, failure);
++                    continue;
++                }
++                if (!walked) {
++                    if (generation != mR0DumpConfigGeneration.get()) {
++                        completed = false;
++                        break;
++                    }
++                    continue;
++                }
++                stats.walked++;
++                if (!firstLoader) {
++                    loaderJson.append(',');
++                }
++                firstLoader = false;
++                loaderJson.append("{\"loader\":\"")
++                        .append(r0dumpJsonEscape(loader.toString()))
++                        .append("\",\"identity\":\"")
++                        .append(Integer.toHexString(System.identityHashCode(loader)))
++                        .append("\",\"dex_elements\":")
++                        .append(stats.dexElements - dexBefore)
++                        .append(",\"unique_cookies\":")
++                        .append(stats.uniqueCookies - cookiesBefore)
++                        .append('}');
++                if (stats.walkedClassCount >= R0DUMP_MAX_CLASS_NAMES
++                        || (config.maxMethods > 0
++                                && stats.dumpedMethodCount >= config.maxMethods)) {
++                    break;
++                }
++            }
++            Log.i(R0DUMP_LOG_TAG, "class-walk complete classes=" + stats.walkedClassCount
++                    + " methods=" + stats.dumpedMethodCount
++                    + " forceBackfill=" + stats.forceBackfillCount
++                    + " loaders=" + stats.walked + "/" + stats.candidates
++                    + " dexElements=" + stats.dexElements
++                    + " requestedThreads=" + config.classWalkThreads);
++        } catch (Throwable t) {
++            completed = false;
++            Log.e(R0DUMP_LOG_TAG, "class-walk reflection failed", t);
++        } finally {
++            loaderJson.append(']');
++            r0dumpInvokeDex("r0dumpNoteClassLoaderScan",
++                    new Class<?>[] {int.class, int.class, int.class, int.class, int.class,
++                            int.class, int.class, String.class},
++                    stats.candidates, stats.walked, stats.dexElements, stats.uniqueCookies,
++                    stats.loadedClassTableClasses, stats.manifestComponentClasses,
++                    stats.manifestSeedDumped, loaderJson.toString());
++        }
++        return completed && generation == mR0DumpConfigGeneration.get();
++    }
++
++    private List<ClassLoader> r0dumpCollectClassLoaders(Application app,
++            R0DumpProcessConfig config) {
++        final ArrayList<ClassLoader> loaders = new ArrayList<>();
++        r0dumpAddClassLoader(loaders, app.getClassLoader());
++        if (config.artClassLoaderScanEnabled) {
++            Object registered = r0dumpInvokeDex("r0dumpGetRegisteredClassLoaders",
++                    new Class<?>[0]);
++            if (registered instanceof ClassLoader[]) {
++                for (ClassLoader loader : (ClassLoader[]) registered) {
++                    r0dumpAddClassLoader(loaders, loader);
++                    if (loaders.size() >= R0DUMP_MAX_CLASS_LOADERS) {
++                        break;
++                    }
++                }
++            }
++        }
++        for (int i = 0; i < loaders.size() && loaders.size() < R0DUMP_MAX_CLASS_LOADERS; i++) {
++            try {
++                r0dumpAddClassLoader(loaders, loaders.get(i).getParent());
++            } catch (Throwable ignored) {
++            }
++        }
++        return loaders;
++    }
++
++    private static void r0dumpAddClassLoader(List<ClassLoader> loaders, ClassLoader candidate) {
++        if (!(candidate instanceof BaseDexClassLoader)
++                || loaders.size() >= R0DUMP_MAX_CLASS_LOADERS) {
++            return;
++        }
++        for (ClassLoader loader : loaders) {
++            if (loader == candidate) {
++                return;
++            }
++        }
++        loaders.add(candidate);
++    }
++
++    private Set<String> r0dumpManifestComponentNames(Application app) {
++        final Set<String> names = new ArraySet<>();
++        try {
++            PackageInfo info = app.getPackageManager().getPackageInfo(app.getPackageName(),
++                    PackageManager.GET_ACTIVITIES | PackageManager.GET_RECEIVERS
++                            | PackageManager.GET_SERVICES | PackageManager.GET_PROVIDERS);
++            r0dumpAddComponentNames(names, info.activities, app.getPackageName());
++            r0dumpAddComponentNames(names, info.receivers, app.getPackageName());
++            r0dumpAddComponentNames(names, info.services, app.getPackageName());
++            r0dumpAddComponentNames(names, info.providers, app.getPackageName());
++        } catch (Throwable failure) {
++            Log.w(R0DUMP_LOG_TAG, "manifest component scan failed", failure);
++        }
++        return names;
++    }
++
++    private static void r0dumpAddComponentNames(Set<String> names,
++            ComponentInfo[] components, String packageName) {
++        if (components == null) {
++            return;
++        }
++        for (ComponentInfo component : components) {
++            if (component == null || component.name == null || component.name.isEmpty()) {
++                continue;
++            }
++            String name = component.name;
++            if (name.charAt(0) == '.') {
++                name = packageName + name;
++            } else if (name.indexOf('.') < 0) {
++                name = packageName + '.' + name;
++            }
++            names.add(name);
++        }
++    }
++
++    private boolean r0dumpWalkClassLoader(ClassLoader loader, R0DumpProcessConfig config,
++            int generation, Set<String> manifestComponents, R0DumpWalkStats stats)
++            throws ReflectiveOperationException {
++        Object pathList = r0dumpReadField(loader, "pathList");
++        Object rawElements = r0dumpReadField(pathList, "dexElements");
++        if (!(rawElements instanceof Object[])) {
++            return false;
++        }
++        final Set<String> seenClasses = new ArraySet<>();
++        final boolean loadedOnly = "loaded_only".equals(config.classWalkMode);
++        for (Object element : (Object[]) rawElements) {
++            if (generation != mR0DumpConfigGeneration.get()) {
++                return false;
++            }
++            if (element == null) {
++                continue;
++            }
++            stats.dexElements++;
++            Object rawDexFile = r0dumpReadField(element, "dexFile");
++            if (!(rawDexFile instanceof DexFile)) {
++                continue;
++            }
++            Object cookie = r0dumpInvokeDex("r0dumpGetCookie",
++                    new Class<?>[] {DexFile.class}, rawDexFile);
++            if (cookie == null) {
++                continue;
++            }
++            if (stats.seenCookies.add(cookie)) {
++                stats.uniqueCookies++;
++                r0dumpInvokeDex("r0dumpDumpDexCookie",
++                        new Class<?>[] {Object.class, int.class}, cookie,
++                        R0DUMP_STRATEGY_JAVA_DEXFILE_ROUTE);
++            }
++            if (!loadedOnly) {
++                String[] classNames = (String[]) r0dumpInvokeDex("r0dumpGetClassNameList",
++                        new Class<?>[] {Object.class}, cookie);
++                r0dumpProcessClassNames(classNames, cookie, loader, config, generation,
++                        seenClasses, false, manifestComponents, stats);
++            }
++            if (stats.walkedClassCount >= R0DUMP_MAX_CLASS_NAMES
++                    || (config.maxMethods > 0
++                            && stats.dumpedMethodCount >= config.maxMethods)) {
++                break;
++            }
++        }
++        if ((loadedOnly || config.loadedClassTableScanEnabled)
++                && stats.walkedClassCount < R0DUMP_MAX_CLASS_NAMES) {
++            String[] loadedNames = (String[]) r0dumpInvokeDex("r0dumpGetLoadedClassNameList",
++                    new Class<?>[] {ClassLoader.class}, loader);
++            stats.loadedClassTableClasses += loadedNames != null ? loadedNames.length : 0;
++            r0dumpProcessClassNames(loadedNames, null, loader, config, generation,
++                    seenClasses, false, manifestComponents, stats);
++        }
++        if (config.manifestComponentSeedEnabled
++                && stats.walkedClassCount < R0DUMP_MAX_CLASS_NAMES
++                && (config.maxMethods == 0 || stats.dumpedMethodCount < config.maxMethods)) {
++            r0dumpProcessClassNames(manifestComponents.toArray(new String[0]), null, loader,
++                    config, generation, seenClasses, true, manifestComponents, stats);
++        }
++        return true;
++    }
++
++    private void r0dumpProcessClassNames(String[] classNames, Object cookie, ClassLoader loader,
++            R0DumpProcessConfig config, int generation, Set<String> seenClasses,
++            boolean manifestSeed, Set<String> manifestComponents, R0DumpWalkStats stats) {
++        if (classNames == null) {
++            return;
++        }
++        for (String className : classNames) {
++            if (generation != mR0DumpConfigGeneration.get()
++                    || stats.walkedClassCount >= R0DUMP_MAX_CLASS_NAMES
++                    || (config.maxMethods > 0
++                            && stats.dumpedMethodCount >= config.maxMethods)) {
++                return;
++            }
++            if (className == null || className.isEmpty()
++                    || (!config.classPrefix.isEmpty()
++                            && !className.startsWith(config.classPrefix))
++                    || !seenClasses.add(className)) {
++                continue;
++            }
++            final Class<?> klass;
++            try {
++                klass = Class.forName(className, false, loader);
++                if (klass.getClassLoader() != loader) {
++                    continue;
++                }
++            } catch (Throwable ignored) {
++                continue;
++            }
++            stats.walkedClassCount++;
++            boolean seeded = manifestSeed && manifestComponents.contains(className);
++            try {
++                Method[] methods = klass.getDeclaredMethods();
++                if (config.dumpMethods) {
++                    for (Method method : methods) {
++                        if (config.maxMethods > 0
++                                && stats.dumpedMethodCount >= config.maxMethods) {
++                            break;
++                        }
++                        r0dumpInvokeDex("r0dumpDumpMethod",
++                                new Class<?>[] {Object.class, Object.class, String.class},
++                                method, cookie, className);
++                        stats.dumpedMethodCount++;
++                    }
++                }
++                if (config.dumpConstructors
++                        && (config.maxMethods == 0
++                                || stats.dumpedMethodCount < config.maxMethods)) {
++                    for (java.lang.reflect.Constructor<?> constructor
++                            : klass.getDeclaredConstructors()) {
++                        if (config.maxMethods > 0
++                                && stats.dumpedMethodCount >= config.maxMethods) {
++                            break;
++                        }
++                        r0dumpInvokeDex("r0dumpDumpMethod",
++                                new Class<?>[] {Object.class, Object.class, String.class},
++                                constructor, cookie, className);
++                        stats.dumpedMethodCount++;
++                    }
++                }
++                if (config.forceBackfillEnabled
++                        && (config.forceBackfillMaxMethods == 0
++                                || stats.forceBackfillCount
++                                        < config.forceBackfillMaxMethods)
++                        && (config.forceBackfillClassPrefix.isEmpty()
++                                || className.startsWith(config.forceBackfillClassPrefix))) {
++                    for (Method method : methods) {
++                        if (config.forceBackfillMaxMethods > 0
++                                && stats.forceBackfillCount
++                                        >= config.forceBackfillMaxMethods) {
++                            break;
++                        }
++                        // Native ART invocation has no receiver or arguments.
++                        if (!Modifier.isStatic(method.getModifiers())
++                                || Modifier.isNative(method.getModifiers())
++                                || method.getParameterCount() != 0) {
++                            continue;
++                        }
++                        r0dumpInvokeDex("r0dumpForceBackfillMethod",
++                                new Class<?>[] {Object.class, Object.class, String.class},
++                                method, cookie, className);
++                        stats.forceBackfillCount++;
++                    }
++                }
++            } catch (Throwable failure) {
++                Log.w(R0DUMP_LOG_TAG, "class member scan failed: " + className, failure);
++            }
++            if (seeded) {
++                stats.manifestSeedDumped++;
++            }
++        }
++    }
++
+     @UnsupportedAppUsage
+     @RavenwoodThrow(comment = "See ActivityThread_ravenwood for initialization on Ravenwood")
+     private void handleBindApplication(AppBindData data) {
+@@ -7853,6 +8677,14 @@ public final class ActivityThread extends ClientTransactionHandler
+         mConfiguration = mConfigurationController.getConfiguration();
+         mCompatibilityInfo = data.compatInfo;
+ 
++        // Configure ART before the application's class loader is constructed so dex-open hooks
++        // see the initial class path as well as dynamically added dex files.
++        try {
++            r0dumpConfigureForProcess(getSystemContext(), data.appInfo, data.processName);
++        } catch (Throwable t) {
++            Log.w(R0DUMP_LOG_TAG, "early configuration skipped", t);
++        }
++
+         mProfiler = new Profiler();
+         String agent = null;
+         if (data.initProfilerInfo != null) {
+@@ -8015,6 +8847,13 @@ public final class ActivityThread extends ClientTransactionHandler
+ 
+         final IActivityManager mgr = ActivityManager.getService();
+         final ContextImpl appContext = ContextImpl.createAppContext(this, data.info);
++        try {
++            // Retry through the application resolver in case SettingsProvider was not ready when
++            // the early system-context read ran.
++            r0dumpConfigureForProcess(appContext, data.appInfo, data.processName);
++        } catch (Throwable t) {
++            Log.w(R0DUMP_LOG_TAG, "application configuration skipped", t);
++        }
+         mConfigurationController.updateLocaleListFromAppContext(appContext);
+ 
+         GamePropsSpoofService gamePropsService = GamePropsSpoofService.getInstance();
+@@ -8133,6 +8972,9 @@ public final class ActivityThread extends ClientTransactionHandler
+             sendMessage(H.SET_CONTENT_CAPTURE_OPTIONS_CALLBACK, data.appInfo.packageName);
+ 
+             mInitialApplication = app;
++            r0dumpTriggerDexRoute(app.getBaseContext(), app.getClassLoader(),
++                    data.appInfo.packageName, R0DUMP_STRATEGY_APP_CREATE);
++            r0dumpStartClassWalkIfNeeded(app);
+             final boolean updateHttpProxy;
+             synchronized (this) {
+                 updateHttpProxy = mUpdateHttpProxyOnBind;
+@@ -8163,6 +9005,8 @@ public final class ActivityThread extends ClientTransactionHandler
+             try {
+                 timestampApplicationOnCreateNs = SystemClock.uptimeNanos();
+                 mInstrumentation.callApplicationOnCreate(app);
++                r0dumpTriggerDexRoute(app.getBaseContext(), app.getClassLoader(),
++                        data.appInfo.packageName, R0DUMP_STRATEGY_APP_CREATE);
+             } catch (Exception e) {
+                 timestampApplicationOnCreateNs = 0;
+                 if (!mInstrumentation.onException(app, e)) {
+diff --git a/core/java/android/os/Process.java b/core/java/android/os/Process.java
+index cca05a2526c3f831d9c90a0ef557459cf4471f81..41e6738eaa2867ad1ceb816e3776f32e043f1838 100644
+--- a/core/java/android/os/Process.java
++++ b/core/java/android/os/Process.java
+@@ -27,8 +27,11 @@ import android.annotation.SuppressLint;
+ import android.annotation.SystemApi;
+ import android.annotation.TestApi;
+ import android.annotation.UptimeMillisLong;
++import android.app.ActivityThread;
+ import android.compat.annotation.UnsupportedAppUsage;
++import android.content.Context;
+ import android.os.Build.VERSION_CODES;
++import android.provider.Settings;
+ import android.ravenwood.annotation.RavenwoodKeep;
+ import android.ravenwood.annotation.RavenwoodKeepPartialClass;
+ import android.ravenwood.annotation.RavenwoodRedirect;
+@@ -39,6 +42,7 @@ import android.system.ErrnoException;
+ import android.system.Os;
+ import android.system.OsConstants;
+ import android.system.StructPollfd;
++import android.util.Log;
+ import android.util.Pair;
+ import android.webkit.WebViewZygote;
+ 
+@@ -64,6 +68,13 @@ import java.util.concurrent.TimeoutException;
+ @RavenwoodRedirectionClass("Process_ravenwood")
+ public class Process {
+     private static final String LOG_TAG = "Process";
++    private static final String R0DUMP_LOG_TAG = "[R0DUMP]";
++    private static final String R0DUMP_SETTING_ENABLED = "r0dump.dump.enabled";
++    private static final String R0DUMP_SETTING_GLOBAL_RUNTIME_ENABLED =
++            "r0dump.dump.global_runtime_enabled";
++    private static final String R0DUMP_SETTING_TARGET_PACKAGE = "r0dump.dump.target_package";
++    private static final String R0DUMP_SETTING_EXIT_OBSERVER_ENABLED =
++            "r0dump.dump.exit_observer.enabled";
+ 
+     /**
+      * An invalid UID value.
+@@ -1446,6 +1457,51 @@ public class Process {
+         sendSignal(pid, SIGNAL_KILL);
+     }
+ 
++    private static void r0dumpObserveExitSignal(String kind, int targetPid, int signal) {
++        try {
++            Context context = ActivityThread.currentApplication();
++            if (context == null) {
++                return;
++            }
++
++            boolean observerEnabled = Settings.Global.getInt(context.getContentResolver(),
++                    R0DUMP_SETTING_EXIT_OBSERVER_ENABLED, 1) == 1;
++            if (!observerEnabled) {
++                return;
++            }
++            boolean dumpEnabled = Settings.Global.getInt(context.getContentResolver(),
++                    R0DUMP_SETTING_ENABLED, 0) == 1;
++            if (!dumpEnabled) {
++                return;
++            }
++
++            boolean globalRuntimeEnabled = Settings.Global.getInt(context.getContentResolver(),
++                    R0DUMP_SETTING_GLOBAL_RUNTIME_ENABLED, 0) == 1;
++            String targetPackage = Settings.Global.getString(context.getContentResolver(),
++                    R0DUMP_SETTING_TARGET_PACKAGE);
++            String packageName = context.getPackageName();
++            boolean packageMatches = globalRuntimeEnabled || "*".equals(targetPackage)
++                    || packageName.equals(targetPackage);
++            if (!packageMatches) {
++                return;
++            }
++
++            String processName = ActivityThread.currentProcessName();
++            if (processName == null || processName.isEmpty()) {
++                processName = myProcessName();
++            }
++            Log.w(R0DUMP_LOG_TAG, "exit observer kind=" + kind
++                    + " callerPid=" + myPid()
++                    + " targetPid=" + targetPid
++                    + " signal=" + signal
++                    + " package=" + packageName
++                    + " process=" + processName,
++                    new Throwable("R0DUMP exit signal stack"));
++        } catch (Throwable ignored) {
++            // Best-effort diagnostic hook. Never change signal delivery behavior.
++        }
++    }
++
+     /**
+      * Check the tgid and tid pair to see if the tid still exists and belong to the tgid.
+      *
+@@ -1501,7 +1557,12 @@ public class Process {
+      * @param pid The pid of the target process.
+      * @param signal The signal to send.
+      */
+-    public static final native void sendSignal(int pid, int signal);
++    public static final void sendSignal(int pid, int signal) {
++        r0dumpObserveExitSignal("Process.sendSignal", pid, signal);
++        nativeSendSignal(pid, signal);
++    }
++
++    private static native void nativeSendSignal(int pid, int signal);
+ 
+     private static native void sendSignalThrows(int pid, int signal)
+             throws IllegalArgumentException, SecurityException, NoSuchElementException;
+@@ -1551,7 +1612,12 @@ public class Process {
+      * beat you up.
+      */
+     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
+-    public static final native void sendSignalQuiet(int pid, int signal);
++    public static final void sendSignalQuiet(int pid, int signal) {
++        r0dumpObserveExitSignal("Process.sendSignalQuiet", pid, signal);
++        nativeSendSignalQuiet(pid, signal);
++    }
++
++    private static native void nativeSendSignalQuiet(int pid, int signal);
+ 
+     /**
+      * @return The advertised memory of the system, as the end user would encounter in a retail
+diff --git a/core/jni/AndroidRuntime.cpp b/core/jni/AndroidRuntime.cpp
+index 3f91922256d7c20827fe656b26cc2cae1c2a804c..cc9b46bf550878ec7c00ec951b8a56df0b10e773 100644
+--- a/core/jni/AndroidRuntime.cpp
++++ b/core/jni/AndroidRuntime.cpp
+@@ -945,6 +945,11 @@ int AndroidRuntime::startVm(JavaVM** pJavaVM, JNIEnv** pEnv, bool zygote, bool p
+       addOption("-XX:LowMemoryMode");
+     }
+ 
++    property_get("ro.config.art_lowmem", propBuf, "");
++    if (strcmp(propBuf, "true") == 0) {
++      addOption("-XX:LowMemoryMode");
++    }
++
+     /*
+      * Garbage-collection related options.
+      */
+diff --git a/core/jni/android_util_Process.cpp b/core/jni/android_util_Process.cpp
+index 62a7d0c83d7408f97b889bde2fc694483c84fff5..7b832a93dc547c6debfe652b6f2d3f66973e0404 100644
+--- a/core/jni/android_util_Process.cpp
++++ b/core/jni/android_util_Process.cpp
+@@ -1416,8 +1416,8 @@ static const JNINativeMethod methods[] = {
+         {"setArgV0Native", "(Ljava/lang/String;)V", (void*)android_os_Process_setArgV0},
+         {"setUid", "(I)I", (void*)android_os_Process_setUid},
+         {"setGid", "(I)I", (void*)android_os_Process_setGid},
+-        {"sendSignal", "(II)V", (void*)android_os_Process_sendSignal},
+-        {"sendSignalQuiet", "(II)V", (void*)android_os_Process_sendSignalQuiet},
++        {"nativeSendSignal", "(II)V", (void*)android_os_Process_sendSignal},
++        {"nativeSendSignalQuiet", "(II)V", (void*)android_os_Process_sendSignalQuiet},
+         {"sendSignalThrows", "(II)V", (void*)android_os_Process_sendSignalThrows},
+         {"sendTgSignalThrows", "(III)V", (void*)android_os_Process_sendTgSignalThrows},
+         {"setProcessFrozen", "(IIZ)V", (void*)android_os_Process_setProcessFrozen},
+diff --git a/packages/SystemUI/shared/src/com/android/systemui/shared/system/BlurUtils.java b/packages/SystemUI/shared/src/com/android/systemui/shared/system/BlurUtils.java
+index 61b0e4d9024ff9b82baa0e4c3cc8f088b9b86da4..84bb0730e92009e4ffd15c579f296fa53620ab6f 100644
+--- a/packages/SystemUI/shared/src/com/android/systemui/shared/system/BlurUtils.java
++++ b/packages/SystemUI/shared/src/com/android/systemui/shared/system/BlurUtils.java
+@@ -29,7 +29,7 @@ public abstract class BlurUtils {
+      * @return {@code true} when supported.
+      */
+     public static boolean supportsBlursOnWindows() {
+-        return CROSS_WINDOW_BLUR_SUPPORTED && ActivityManager.isHighEndGfx()
++        return CROSS_WINDOW_BLUR_SUPPORTED && !ActivityManager.isLowRamDeviceStatic()
+                 && !SystemProperties.getBoolean("persist.sysui.disableBlur", false);
+     }
+ }
+diff --git a/packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java b/packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java
+index 5f23002c4d992b0fa1f143344a09fbac3f350f29..813bd1eeada9c8802b71a9812853a2871ecf971b 100644
+--- a/packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java
++++ b/packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java
+@@ -601,6 +601,7 @@ public class MediaControlPanel {
+                         mLoadingEffect::finish,
+                         TURBULENCE_NOISE_PLAY_DURATION
+                 );
++		/*
+             } else {
+                 mTurbulenceNoiseController.play(
+                         Type.SIMPLEX_NOISE,
+@@ -610,6 +611,7 @@ public class MediaControlPanel {
+                         mTurbulenceNoiseController::finish,
+                         TURBULENCE_NOISE_PLAY_DURATION
+                 );
++		*/
+             }
+         }
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/BlurUtils.kt b/packages/SystemUI/src/com/android/systemui/statusbar/BlurUtils.kt
+index bad2d77d2075a2b1e0b8754120c096d00f2cc78c..360bead95ada5c252dd3ad8729f915855a417a02 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/BlurUtils.kt
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/BlurUtils.kt
+@@ -254,7 +254,7 @@ constructor(
+ 
+     private fun supportsBlursOnWindowsBase(): Boolean {
+         return CROSS_WINDOW_BLUR_SUPPORTED &&
+-            ActivityManager.isHighEndGfx() &&
++            !ActivityManager.isLowRamDeviceStatic() &&
+             !SystemProperties.getBoolean("persist.sysui.disableBlur", false)
+     }
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/window/data/repository/WindowRootViewBlurRepository.kt b/packages/SystemUI/src/com/android/systemui/window/data/repository/WindowRootViewBlurRepository.kt
+index 0e01ca1588b3481d7fb3756abfefebac660098bc..2395c644372aa7f7b62861101cd065ad6417b7b1 100644
+--- a/packages/SystemUI/src/com/android/systemui/window/data/repository/WindowRootViewBlurRepository.kt
++++ b/packages/SystemUI/src/com/android/systemui/window/data/repository/WindowRootViewBlurRepository.kt
+@@ -172,7 +172,7 @@ constructor(
+             1, UserHandle.USER_CURRENT) == 1
+ 
+     private fun isBlurAllowed(): Boolean {
+-        return ActivityManager.isHighEndGfx() && !isDisableBlurSysPropSet()
++        return !ActivityManager.isLowRamDeviceStatic() && !isDisableBlurSysPropSet()
+     }
+ 
+     companion object {
+diff --git a/services/core/java/com/android/server/am/ProcessErrorStateRecord.java b/services/core/java/com/android/server/am/ProcessErrorStateRecord.java
+index 14a1b0e42b4f0b8977a4472ffc76eba35934e422..c6edf3774e1f527f036c7a290c20852b1101f797 100644
+--- a/services/core/java/com/android/server/am/ProcessErrorStateRecord.java
++++ b/services/core/java/com/android/server/am/ProcessErrorStateRecord.java
+@@ -44,6 +44,7 @@ import android.os.incremental.IIncrementalService;
+ import android.os.incremental.IncrementalManager;
+ import android.os.incremental.IncrementalMetrics;
+ import android.provider.Settings;
++import android.text.TextUtils;
+ import android.util.EventLog;
+ import android.util.Slog;
+ import android.util.SparseBooleanArray;
+@@ -268,6 +269,38 @@ class ProcessErrorStateRecord {
+         mDialogController = new ErrorDialogController(app);
+     }
+ 
++    @GuardedBy("mService")
++    private boolean shouldR0DumpSuppressAnrKillLocked(String killReason, String annotation) {
++        final Context context = mService != null ? mService.mContext : null;
++        if (context == null || mApp == null || mApp.info == null) {
++            return false;
++        }
++        final ContentResolver resolver = context.getContentResolver();
++        if (Settings.Global.getInt(resolver, "r0dump.dump.enabled", 0) != 1
++                || Settings.Global.getInt(resolver,
++                        "r0dump.dump.anr_protection.enabled", 0) != 1) {
++            return false;
++        }
++        final String target = Settings.Global.getString(resolver, "r0dump.dump.target_package");
++        if (TextUtils.isEmpty(target) || "*".equals(target)) {
++            return false;
++        }
++        final String processName = mApp.processName;
++        final int splitIndex = processName != null ? processName.indexOf(':') : -1;
++        final String baseProcessName = splitIndex > 0 ? processName.substring(0, splitIndex)
++                : processName;
++        final String packageName = mApp.info.packageName;
++        final boolean matched = target.equals(packageName)
++                || target.equals(processName)
++                || target.equals(baseProcessName);
++        if (matched) {
++            Slog.w(TAG, "R0DUMP suppressing ANR kill reason=" + killReason
++                    + " process=" + processName + " target=" + target
++                    + " annotation=" + annotation);
++        }
++        return matched;
++    }
++
+     @GuardedBy("mService")
+     boolean skipAnrLocked(String annotation) {
+         // PowerManager.reboot() can block for a long time, so ignore ANRs while shutting down.
+@@ -314,6 +347,9 @@ class ProcessErrorStateRecord {
+                 latencyTracker.waitingOnAMSLockEnded();
+                 // Store annotation here as instance below races with this killLocked.
+                 setAnrAnnotation(annotation);
++                if (shouldR0DumpSuppressAnrKillLocked("anr", annotation)) {
++                    return;
++                }
+                 if (android.app.Flags.includeAnrSubreason()) {
+                     mApp.killLocked("anr", ApplicationExitInfo.REASON_ANR,
+                             timeoutRecord.getAppExitInfoAnrSubreason(), true);
+@@ -654,6 +690,9 @@ class ProcessErrorStateRecord {
+         if (mApp.getWindowProcessController().appNotResponding(info.toString(),
+                 () -> {
+                     synchronized (mService) {
++                        if (shouldR0DumpSuppressAnrKillLocked("anr", annotation)) {
++                            return;
++                        }
+                         if (android.app.Flags.includeAnrSubreason()) {
+                             mApp.killLocked("anr", ApplicationExitInfo.REASON_ANR,
+                                     timeoutRecord.getAppExitInfoAnrSubreason(), true);
+@@ -678,6 +717,9 @@ class ProcessErrorStateRecord {
+             }
+ 
+             if (isSilentAnr() && !mApp.isDebugging()) {
++                if (shouldR0DumpSuppressAnrKillLocked("bg anr", annotation)) {
++                    return;
++                }
+                 if (android.app.Flags.includeAnrSubreason()) {
+                     mApp.killLocked("bg anr", ApplicationExitInfo.REASON_ANR,
+                             timeoutRecord.getAppExitInfoAnrSubreason(), true);
+diff --git a/services/core/java/com/android/server/logcat/LogcatManagerService.java b/services/core/java/com/android/server/logcat/LogcatManagerService.java
+index 92ac6e2630e8ff788aeb55db84a84a3e7a069b8e..a6d9768c335efc387875a527e2b290075f8b49c3 100644
+--- a/services/core/java/com/android/server/logcat/LogcatManagerService.java
++++ b/services/core/java/com/android/server/logcat/LogcatManagerService.java
+@@ -18,6 +18,7 @@ package com.android.server.logcat;
+ 
+ import static android.os.Process.getParentPid;
+ 
++import android.Manifest;
+ import android.annotation.IntDef;
+ import android.annotation.NonNull;
+ import android.annotation.Nullable;
+@@ -66,6 +67,7 @@ public final class LogcatManagerService extends SystemService {
+     private static final String TARGET_PACKAGE_NAME = "com.android.systemui";
+     private static final String TARGET_ACTIVITY_NAME =
+             "com.android.systemui.logcat.LogAccessDialogActivity";
++    private static final String R0DUMP_MANAGER_PACKAGE_NAME = "com.android.r0dumpmanager";
+     public static final String EXTRA_CALLBACK = "EXTRA_CALLBACK";
+ 
+     /** How long to wait for the user to approve/decline before declining automatically */
+@@ -426,6 +428,16 @@ public final class LogcatManagerService extends SystemService {
+         return procState == ActivityManager.PROCESS_STATE_TOP;
+     }
+ 
++    private boolean shouldAlwaysApproveLogAccess(LogAccessClient client) {
++        if (!R0DUMP_MANAGER_PACKAGE_NAME.equals(client.mPackageName)) {
++            return false;
++        }
++        final PackageManager pm = mContext.getPackageManager();
++        return pm != null
++                && pm.checkPermission(Manifest.permission.READ_LOGS, client.mPackageName)
++                        == PackageManager.PERMISSION_GRANTED;
++    }
++
+     private void processNewLogAccessRequest(LogAccessClient client) {
+         boolean isInstrumented = mActivityManagerInternal.getInstrumentationSourceUid(client.mUid)
+                 != android.os.Process.INVALID_UID;
+@@ -440,6 +452,11 @@ public final class LogcatManagerService extends SystemService {
+             return;
+         }
+ 
++        if (shouldAlwaysApproveLogAccess(client)) {
++            onAccessApprovedForClient(client);
++            return;
++        }
++
+         if (!shouldShowConfirmationDialog(client)) {
+             onAccessDeclinedForClient(client);
+             return;

@@ -1,0 +1,392 @@
+diff --git a/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java b/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
+index 552fcc7b6437666543ad5638b6881cbf02df3972..03df7d1d6e4894b134ea68b4d08b4d66685c12c2 100644
+--- a/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
++++ b/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
+@@ -41,6 +41,7 @@ import sun.misc.CompoundEnumeration;
+  * {@link ClassLoader} implementations.
+  */
+ public class BaseDexClassLoader extends ClassLoader {
++    private static final int R0DUMP_STRATEGY_JAVA_CLASS_LOADER_ROUTE = 1 << 27;
+ 
+     /**
+      * Hook for customizing how dex files loads are reported.
+@@ -158,6 +159,7 @@ public class BaseDexClassLoader extends ClassLoader {
+                 ? null
+                 : Arrays.copyOf(sharedLibraryLoaders, sharedLibraryLoaders.length);
+         this.pathList = new DexPathList(this, dexPath, librarySearchPath, null, isTrusted);
++        this.pathList.r0dumpDumpDexElements(R0DUMP_STRATEGY_JAVA_CLASS_LOADER_ROUTE);
+ 
+         this.sharedLibraryLoadersAfter = sharedLibraryLoadersAfter == null
+                 ? null
+@@ -224,6 +226,7 @@ public class BaseDexClassLoader extends ClassLoader {
+         this.sharedLibraryLoadersAfter = null;
+         this.pathList = new DexPathList(this, librarySearchPath);
+         this.pathList.initByteBufferDexPath(dexFiles);
++        this.pathList.r0dumpDumpDexElements(R0DUMP_STRATEGY_JAVA_CLASS_LOADER_ROUTE);
+         // Run background verification after having set 'pathList'.
+         this.pathList.maybeRunBackgroundVerification(this);
+     }
+@@ -244,6 +247,7 @@ public class BaseDexClassLoader extends ClassLoader {
+         List<Throwable> suppressedExceptions = new ArrayList<Throwable>();
+         Class c = pathList.findClass(name, suppressedExceptions);
+         if (c != null) {
++            pathList.r0dumpDumpDexElements(R0DUMP_STRATEGY_JAVA_CLASS_LOADER_ROUTE);
+             return c;
+         }
+         // Now, check whether the class is present in the "after" shared libraries.
+@@ -285,6 +289,7 @@ public class BaseDexClassLoader extends ClassLoader {
+     @UnsupportedAppUsage
+     public void addDexPath(String dexPath, boolean isTrusted) {
+         pathList.addDexPath(dexPath, null /*optimizedDirectory*/, isTrusted);
++        pathList.r0dumpDumpDexElements(R0DUMP_STRATEGY_JAVA_CLASS_LOADER_ROUTE);
+     }
+ 
+     /**
+diff --git a/dalvik/src/main/java/dalvik/system/DexFile.java b/dalvik/src/main/java/dalvik/system/DexFile.java
+index 039767941e62a354a301e82c2d1a73b0a79c24dd..79203a39cfd0fea9cb18a9737dd4d0e983e6b162 100644
+--- a/dalvik/src/main/java/dalvik/system/DexFile.java
++++ b/dalvik/src/main/java/dalvik/system/DexFile.java
+@@ -61,6 +61,7 @@ public final class DexFile {
+     private Object mInternalCookie;
+     @UnsupportedAppUsage
+     private final String mFileName;
++    private static final int R0DUMP_STRATEGY_JAVA_DEXFILE_ROUTE = 1 << 28;
+ 
+     /**
+      * Enforce the file passed to open DexFile to be set as read-only for apps targeting U+. This
+@@ -128,6 +129,7 @@ public final class DexFile {
+         mCookie = openDexFile(fileName, null, 0, loader, elements);
+         mInternalCookie = mCookie;
+         mFileName = fileName;
++        r0dumpDumpDexFile(R0DUMP_STRATEGY_JAVA_DEXFILE_ROUTE);
+         //System.out.println("DEX FILE cookie is " + mCookie + " fileName=" + fileName);
+     }
+ 
+@@ -136,6 +138,7 @@ public final class DexFile {
+         mCookie = openInMemoryDexFiles(bufs, loader, elements);
+         mInternalCookie = mCookie;
+         mFileName = null;
++        r0dumpDumpDexFile(R0DUMP_STRATEGY_JAVA_DEXFILE_ROUTE);
+     }
+ 
+     /**
+@@ -171,6 +174,7 @@ public final class DexFile {
+         mCookie = openDexFile(sourceName, outputName, flags, loader, elements);
+         mInternalCookie = mCookie;
+         mFileName = sourceName;
++        r0dumpDumpDexFile(R0DUMP_STRATEGY_JAVA_DEXFILE_ROUTE);
+         //System.out.println("DEX FILE cookie is " + mCookie + " sourceName=" + sourceName + " outputName=" + outputName);
+     }
+ 
+@@ -318,6 +322,7 @@ public final class DexFile {
+      */
+     @UnsupportedAppUsage
+     public Class loadClassBinaryName(String name, ClassLoader loader, List<Throwable> suppressed) {
++        r0dumpDumpDexFile(R0DUMP_STRATEGY_JAVA_DEXFILE_ROUTE);
+         return defineClass(name, loader, mCookie, this, suppressed);
+     }
+ 
+@@ -467,6 +472,186 @@ public final class DexFile {
+             throws ClassNotFoundException, NoClassDefFoundError;
+     @UnsupportedAppUsage
+     private static native String[] getClassNameList(Object cookie);
++
++    // R0DUMP hooks are deliberately private: ActivityThread discovers them through reflection
++    // so the diagnostic controls do not become part of the public Java API.
++    private static native void dumpMethodCode(Object executable);
++    private static native void dumpMethodCode(Object executable, Object cookie);
++    private static native void dumpMethodCode(Object executable, Object cookie, String className);
++    private static native void forceBackfillMethod(Object executable);
++    private static native void forceBackfillMethod(Object executable, Object cookie);
++    private static native void forceBackfillMethod(Object executable, Object cookie, String className);
++    private static native ClassLoader[] getRegisteredClassLoaders();
++    private static native String[] getLoadedClassNameList(ClassLoader classLoader);
++    private static native void configureR0DumpOutput(String outputRoot);
++    private static native void configureR0DumpRuntime(String outputRoot, String packageName,
++            String processName, String runId, int strategyMask, int maxRecords, int maxSeconds,
++            boolean stopAfterComplete);
++    private static native void stopR0DumpRuntime(String reason);
++    private static native void configureR0DumpForceBackfill(int maxMethods, boolean onlyStatic,
++            boolean skipNative, boolean skipConstructor);
++    private static native void configureR0DumpRawDexDataMirror(boolean enabled);
++    private static native void configureR0DumpAsyncExport(boolean enabled);
++    private static native void noteR0DumpClassLoaderScan(int candidates, int walked,
++            int dexElements, int uniqueCookies, int loadedClassTableClasses,
++            int manifestComponentClasses, int manifestSeedDumped, String classLoadersJson);
++    private static native void noteR0DumpPhase(String phase);
++    private static native void markR0DumpComplete();
++    private static native void dumpDexFile(Object cookie, int strategy);
++
++    void r0dumpDumpDexFile(int strategy) {
++        Object cookie = mCookie;
++        if (cookie == null) {
++            return;
++        }
++        try {
++            dumpDexFile(cookie, strategy);
++        } catch (Throwable ignored) {
++            // R0DUMP is best-effort instrumentation and must never break normal class loading.
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static void r0dumpConfigureRuntime(String outputRoot, String packageName,
++            String processName, String runId, int strategyMask, int maxRecords, int maxSeconds,
++            boolean stopAfterComplete,
++            int forceBackfillMaxMethods, boolean forceBackfillOnlyStatic,
++            boolean forceBackfillSkipNative, boolean forceBackfillSkipConstructor,
++            boolean rawDexDataMirrorEnabled, boolean asyncExportEnabled) {
++        try {
++            configureR0DumpRuntime(outputRoot, packageName, processName, runId, strategyMask,
++                    maxRecords, maxSeconds, stopAfterComplete);
++            configureR0DumpForceBackfill(forceBackfillMaxMethods, forceBackfillOnlyStatic,
++                    forceBackfillSkipNative, forceBackfillSkipConstructor);
++            configureR0DumpRawDexDataMirror(rawDexDataMirrorEnabled);
++            configureR0DumpAsyncExport(asyncExportEnabled);
++        } catch (Throwable ignored) {
++            // Instrumentation must never prevent normal application startup.
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static void r0dumpStopRuntime(String reason) {
++        try {
++            stopR0DumpRuntime(reason);
++        } catch (Throwable ignored) {
++            // Instrumentation must never prevent normal application execution.
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static Object r0dumpGetCookie(DexFile dexFile) {
++        return dexFile != null ? dexFile.mCookie : null;
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static String[] r0dumpGetClassNameList(Object cookie) {
++        try {
++            return cookie != null ? getClassNameList(cookie) : null;
++        } catch (Throwable ignored) {
++            return null;
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static ClassLoader[] r0dumpGetRegisteredClassLoaders() {
++        try {
++            return getRegisteredClassLoaders();
++        } catch (Throwable ignored) {
++            return null;
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static String[] r0dumpGetLoadedClassNameList(ClassLoader classLoader) {
++        try {
++            return classLoader != null ? getLoadedClassNameList(classLoader) : null;
++        } catch (Throwable ignored) {
++            return null;
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static void r0dumpDumpMethod(Object executable, Object cookie, String className) {
++        try {
++            if (cookie != null && className != null) {
++                dumpMethodCode(executable, cookie, className);
++            } else if (cookie != null) {
++                dumpMethodCode(executable, cookie);
++            } else {
++                dumpMethodCode(executable);
++            }
++        } catch (Throwable ignored) {
++            // A single malformed or unloaded method must not abort the walk.
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static void r0dumpForceBackfillMethod(Object executable, Object cookie,
++            String className) {
++        try {
++            if (cookie != null && className != null) {
++                forceBackfillMethod(executable, cookie, className);
++            } else if (cookie != null) {
++                forceBackfillMethod(executable, cookie);
++            } else {
++                forceBackfillMethod(executable);
++            }
++        } catch (Throwable ignored) {
++            // Best effort, see r0dumpDumpMethod.
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static void r0dumpNoteClassLoaderScan(int candidates, int walked, int dexElements,
++            int uniqueCookies, int loadedClassTableClasses, int manifestComponentClasses,
++            int manifestSeedDumped, String classLoadersJson) {
++        try {
++            noteR0DumpClassLoaderScan(candidates, walked, dexElements, uniqueCookies,
++                    loadedClassTableClasses, manifestComponentClasses, manifestSeedDumped,
++                    classLoadersJson);
++        } catch (Throwable ignored) {
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static void r0dumpMarkPhase(String phase) {
++        try {
++            noteR0DumpPhase(phase);
++        } catch (Throwable ignored) {
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static void r0dumpMarkComplete() {
++        try {
++            markR0DumpComplete();
++        } catch (Throwable ignored) {
++        }
++    }
++
++    /** @hide */
++    @UnsupportedAppUsage
++    public static void r0dumpDumpDexCookie(Object cookie, int strategy) {
++        try {
++            if (cookie != null) {
++                dumpDexFile(cookie, strategy);
++            }
++        } catch (Throwable ignored) {
++        }
++    }
++
+     private static native boolean isBackedByOatFile(Object cookie);
+     private static native void setTrusted(Object cookie);
+     /*
+diff --git a/dalvik/src/main/java/dalvik/system/DexPathList.java b/dalvik/src/main/java/dalvik/system/DexPathList.java
+index 780f6b004b3c84faf13844c865dd5696f74eeba3..c55907685afdf91ce7c53872d2f4cc96613a3d00 100644
+--- a/dalvik/src/main/java/dalvik/system/DexPathList.java
++++ b/dalvik/src/main/java/dalvik/system/DexPathList.java
+@@ -233,6 +233,17 @@ public final class DexPathList {
+         }
+     }
+ 
++    void r0dumpDumpDexElements(int strategy) {
++        if (dexElements == null) {
++            return;
++        }
++        for (Element element : dexElements) {
++            if (element != null && element.dexFile != null) {
++                element.dexFile.r0dumpDumpDexFile(strategy);
++            }
++        }
++    }
++
+     private static<T> T[] concat(Class<T> componentType, T[] inputA, T[] inputB) {
+         T[] output = (T[]) Array.newInstance(componentType, inputA.length + inputB.length);
+         System.arraycopy(inputA, 0, output, 0, inputA.length);
+diff --git a/ojluni/src/main/java/java/lang/Runtime.java b/ojluni/src/main/java/java/lang/Runtime.java
+index 01faed6d7bf69eb4abe0b7079627b2afd58946e3..4f43830c04335fea7ff98760e91942cf37423e77 100644
+--- a/ojluni/src/main/java/java/lang/Runtime.java
++++ b/ojluni/src/main/java/java/lang/Runtime.java
+@@ -89,6 +89,14 @@ public class Runtime {
+ 
+     private static native void nativeExit(int code);
+ 
++    private static final String R0DUMP_LOG_TAG = "[R0DUMP]";
++    private static final String R0DUMP_SETTING_ENABLED = "r0dump.dump.enabled";
++    private static final String R0DUMP_SETTING_GLOBAL_RUNTIME_ENABLED =
++            "r0dump.dump.global_runtime_enabled";
++    private static final String R0DUMP_SETTING_TARGET_PACKAGE = "r0dump.dump.target_package";
++    private static final String R0DUMP_SETTING_EXIT_OBSERVER_ENABLED =
++            "r0dump.dump.exit_observer.enabled";
++
+     /**
+      * Returns the runtime object associated with the current Java application.
+      * Most of the methods of class {@code Runtime} are instance
+@@ -104,6 +112,59 @@ public class Runtime {
+     /** Don't let anyone else instantiate this class */
+     private Runtime() {}
+ 
++    private static String r0dumpString(Object value) {
++        return value == null ? "" : String.valueOf(value);
++    }
++
++    private static void r0dumpObserveExit(String kind, int status) {
++        try {
++            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
++            Object app = activityThreadClass.getMethod("currentApplication").invoke(null);
++            if (app == null) {
++                return;
++            }
++
++            Class<?> contentResolverClass = Class.forName("android.content.ContentResolver");
++            Object resolver = app.getClass().getMethod("getContentResolver").invoke(app);
++            Class<?> settingsGlobalClass = Class.forName("android.provider.Settings$Global");
++            java.lang.reflect.Method getInt = settingsGlobalClass.getMethod(
++                    "getInt", contentResolverClass, String.class, int.class);
++            java.lang.reflect.Method getString = settingsGlobalClass.getMethod(
++                    "getString", contentResolverClass, String.class);
++
++            int observerEnabled = (Integer) getInt.invoke(
++                    null, resolver, R0DUMP_SETTING_EXIT_OBSERVER_ENABLED, 1);
++            if (observerEnabled != 1) {
++                return;
++            }
++            int dumpEnabled = (Integer) getInt.invoke(null, resolver, R0DUMP_SETTING_ENABLED, 0);
++            if (dumpEnabled != 1) {
++                return;
++            }
++
++            boolean globalRuntimeEnabled = ((Integer) getInt.invoke(
++                    null, resolver, R0DUMP_SETTING_GLOBAL_RUNTIME_ENABLED, 0)) == 1;
++            String targetPackage = r0dumpString(getString.invoke(
++                    null, resolver, R0DUMP_SETTING_TARGET_PACKAGE));
++            String packageName = r0dumpString(app.getClass().getMethod("getPackageName").invoke(app));
++            boolean packageMatches = globalRuntimeEnabled || "*".equals(targetPackage)
++                    || packageName.equals(targetPackage);
++            if (!packageMatches) {
++                return;
++            }
++
++            String processName = r0dumpString(activityThreadClass.getMethod(
++                    "currentProcessName").invoke(null));
++            System.logW(R0DUMP_LOG_TAG + " exit observer kind=" + kind
++                    + " status=" + status
++                    + " package=" + packageName
++                    + " process=" + processName,
++                    new Throwable("R0DUMP exit stack"));
++        } catch (Throwable ignored) {
++            // Best-effort diagnostic hook. Never change app exit behavior.
++        }
++    }
++
+     /**
+      * Terminates the currently running Java virtual machine by initiating its
+      * shutdown sequence.  This method never returns normally.  The argument
+@@ -139,6 +200,7 @@ public class Runtime {
+      * @see #halt(int)
+      */
+     public void exit(int status) {
++        r0dumpObserveExit("Runtime.exit", status);
+         // Make sure we don't try this several times
+         synchronized(this) {
+             if (!shuttingDown) {
+@@ -364,6 +426,7 @@ public class Runtime {
+         Shutdown.halt(status);
+         }
+         */
++        r0dumpObserveExit("Runtime.halt", status);
+         nativeExit(status);
+     }
+ 
