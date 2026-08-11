@@ -4,12 +4,13 @@
 
 1. 在 Manager 中明确选择一个 App。
 2. 进程范围保持 `main_only`。
-3. 使用默认策略组合 `0x187`。
+3. 使用默认策略组合 `0x87`。
 4. 保持全局、force backfill、raw dexdata mirror 和高频 JIT/instrumentation 关闭。
 5. 打开 `stop_after_complete`，然后点击开始。
 
-`0x187` 包含 Class walk、Application create、Activity create、InMemoryDex 和
-DefineClass。它是普通 App 的首次验证预设，不是每种样本的唯一最佳组合。
+`0x87` 包含 Class walk、Application create、Activity create 和 InMemoryDex。
+`DEFINE_CLASS`（位 `0x100`）是性能敏感的高级选项，默认关闭；它只建议在确认
+样本需要时单独开启。
 
 ## 全局与未选应用
 
@@ -43,7 +44,7 @@ DefineClass。它是普通 App 的首次验证预设，不是每种样本的唯�
 - `class_walk`：主动遍历进行中。
 - `complete`：完成并已收敛。
 - `stopped_by_limit`：达到记录或时间上限。
-- `class_walk_failed`：遍历失败，需查看状态和 logcat。
+- `class_walk_failed`：遍历失败，当前运行已停止；查看 `stop_reason` 和 logcat。
 
 修复后的 Manager 不再把已进入终态的批次回退成 `dumping`，也不再因
 `onResume()` 竞态把新 `run_id` 覆盖为 `pending`。
@@ -57,6 +58,9 @@ DEX 041 的 entry 边界，应用 method records 后重算 SHA-1 和 Adler32。�
 
 ## 资源上限
 
-默认上限为 50,000 条记录和 300 秒。修复扫描同时限制目录深度、文件数、
+默认启动后延迟为 10 秒；默认上限为 50,000 条记录和 300 秒。修复扫描同时限制目录深度、文件数、
 总字节、单文件大小和符号链接。先用默认值跑通，再根据具体样本增加范围。
 
+方法记录文件在一次运行中保持打开并按批次刷盘，减少 Redmi 9A eMMC 上反复
+open/close 带来的长时间卡顿。异步开关当前显示为 `disabled`；显式请求异步时，
+状态会标为 `synchronous_fallback`，不会伪装成真正的后台队列。

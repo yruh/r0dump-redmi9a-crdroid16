@@ -84,8 +84,11 @@ Thermal HAL、`libnvram` 和 `libsysenv` 的 Android 16 兼容依赖在提取阶
 ANDROID_ROOT="$PWD" ../r0dump-redmi9a-crdroid16/scripts/build-full-ota.sh
 ```
 
-默认使用普通并行 `-j4`、highmem pool `1`、`MemoryHigh=20G`、
-`MemoryMax=24G` 和 `MemorySwapMax=4G`。详细说明见 [docs/BUILD.md](docs/BUILD.md)。
+默认使用普通并行 `-j4`、highmem pool `2`、`MemoryHigh=20G`、
+`MemoryMax=24G`、`MemorySwapMax=0G`。普通 dex/R8/D8 堆限制为 `2048M`，
+`Launcher3QuickStep` 单独使用 `3072M`；OTA 临时文件写入工作盘上的
+`out/r0dump-tmp`，不会占满小容量 `/tmp`。
+详细说明见 [docs/BUILD.md](docs/BUILD.md)。
 
 ## 重要区分
 
@@ -108,4 +111,3 @@ ANDROID_ROOT="$PWD" ../r0dump-redmi9a-crdroid16/scripts/build-full-ota.sh
 
 Apache License 2.0。上游文件保留各自原有声明，详见 [LICENSE](LICENSE)
 和 [NOTICE](NOTICE)。
-

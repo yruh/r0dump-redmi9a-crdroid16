@@ -55,10 +55,12 @@ while IFS=$'\t' read -r order project base patch_name; do
 done < patches/series.tsv
 
 if [[ -d .git ]]; then
-  git diff --check
+  # Generated patch text can faithfully carry whitespace from its recorded
+  # upstream base.  check-patches.sh validates application with Git's strict
+  # whitespace mode; keep this tree check focused on hand-authored files.
+  git diff --check -- . ':(exclude)patches/*.patch'
 fi
 if [[ -s verification/SOURCE_SHA256SUMS ]]; then
   sha256sum -c verification/SOURCE_SHA256SUMS
 fi
 printf 'release check: PASS\n'
-

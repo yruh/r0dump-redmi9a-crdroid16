@@ -1,5 +1,5 @@
 diff --git a/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java b/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
-index 552fcc7b6437666543ad5638b6881cbf02df3972..03df7d1d6e4894b134ea68b4d08b4d66685c12c2 100644
+index 552fcc7b643..03df7d1d6e4 100644
 --- a/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
 +++ b/dalvik/src/main/java/dalvik/system/BaseDexClassLoader.java
 @@ -41,6 +41,7 @@ import sun.misc.CompoundEnumeration;
@@ -43,7 +43,7 @@ index 552fcc7b6437666543ad5638b6881cbf02df3972..03df7d1d6e4894b134ea68b4d08b4d66
  
      /**
 diff --git a/dalvik/src/main/java/dalvik/system/DexFile.java b/dalvik/src/main/java/dalvik/system/DexFile.java
-index 039767941e62a354a301e82c2d1a73b0a79c24dd..79203a39cfd0fea9cb18a9737dd4d0e983e6b162 100644
+index 039767941e6..79203a39cfd 100644
 --- a/dalvik/src/main/java/dalvik/system/DexFile.java
 +++ b/dalvik/src/main/java/dalvik/system/DexFile.java
 @@ -61,6 +61,7 @@ public final class DexFile {
@@ -274,7 +274,7 @@ index 039767941e62a354a301e82c2d1a73b0a79c24dd..79203a39cfd0fea9cb18a9737dd4d0e9
      private static native void setTrusted(Object cookie);
      /*
 diff --git a/dalvik/src/main/java/dalvik/system/DexPathList.java b/dalvik/src/main/java/dalvik/system/DexPathList.java
-index 780f6b004b3c84faf13844c865dd5696f74eeba3..c55907685afdf91ce7c53872d2f4cc96613a3d00 100644
+index 780f6b004b3..c55907685af 100644
 --- a/dalvik/src/main/java/dalvik/system/DexPathList.java
 +++ b/dalvik/src/main/java/dalvik/system/DexPathList.java
 @@ -233,6 +233,17 @@ public final class DexPathList {
@@ -296,7 +296,7 @@ index 780f6b004b3c84faf13844c865dd5696f74eeba3..c55907685afdf91ce7c53872d2f4cc96
          T[] output = (T[]) Array.newInstance(componentType, inputA.length + inputB.length);
          System.arraycopy(inputA, 0, output, 0, inputA.length);
 diff --git a/ojluni/src/main/java/java/lang/Runtime.java b/ojluni/src/main/java/java/lang/Runtime.java
-index 01faed6d7bf69eb4abe0b7079627b2afd58946e3..4f43830c04335fea7ff98760e91942cf37423e77 100644
+index 01faed6d7bf..4f43830c043 100644
 --- a/ojluni/src/main/java/java/lang/Runtime.java
 +++ b/ojluni/src/main/java/java/lang/Runtime.java
 @@ -89,6 +89,14 @@ public class Runtime {

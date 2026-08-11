@@ -1,5 +1,5 @@
 diff --git a/libdexfile/dex/dex_file.cc b/libdexfile/dex/dex_file.cc
-index c24a49294439439bf583ed9f25ca08ea318f8ea1..904cf860198e4377d91d2423aeb4a3742d25121c 100644
+index c24a492944..904cf86019 100644
 --- a/libdexfile/dex/dex_file.cc
 +++ b/libdexfile/dex/dex_file.cc
 @@ -22,11 +22,15 @@
@@ -122,7 +122,7 @@ index c24a49294439439bf583ed9f25ca08ea318f8ea1..904cf860198e4377d91d2423aeb4a374
      // Don't go further if the data doesn't even contain a header.
      return;
 diff --git a/libdexfile/dex/dex_file_loader.cc b/libdexfile/dex/dex_file_loader.cc
-index 96dd2632f2c27ed100590c67e443a67ad4779b49..d1f8cc2421e02038bffba1ded4ab4f543bca0e2f 100644
+index 96dd2632f2..d1f8cc2421 100644
 --- a/libdexfile/dex/dex_file_loader.cc
 +++ b/libdexfile/dex/dex_file_loader.cc
 @@ -37,6 +37,11 @@
@@ -150,7 +150,7 @@ index 96dd2632f2c27ed100590c67e443a67ad4779b49..d1f8cc2421e02038bffba1ded4ab4f54
  }
  
 diff --git a/runtime/Android.bp b/runtime/Android.bp
-index dd3e078594e9b8eb8f873ca4d323d67c19b8ee1e..b6b1640e2065b380c8aad57c804069e6ba2a3779 100644
+index dd3e078594..b6b1640e20 100644
 --- a/runtime/Android.bp
 +++ b/runtime/Android.bp
 @@ -273,6 +273,7 @@ cc_defaults {
@@ -162,7 +162,7 @@ index dd3e078594e9b8eb8f873ca4d323d67c19b8ee1e..b6b1640e2065b380c8aad57c804069e6
          "backtrace_helper.cc",
          "barrier.cc",
 diff --git a/runtime/art_method.cc b/runtime/art_method.cc
-index e662e7878204db633d054a4863c39a97ad635f90..d3e7ed9bb4b31604fe58358a9025bdad6ba83624 100644
+index e662e78782..d3e7ed9bb4 100644
 --- a/runtime/art_method.cc
 +++ b/runtime/art_method.cc
 @@ -62,6 +62,10 @@ extern "C" void art_quick_invoke_stub(ArtMethod*, uint32_t*, uint32_t, Thread*,
@@ -187,7 +187,7 @@ index e662e7878204db633d054a4863c39a97ad635f90..d3e7ed9bb4b31604fe58358a9025bdad
    if (kIsDebugBuild) {
      self->AssertThreadSuspensionIsAllowable();
 diff --git a/runtime/class_linker.cc b/runtime/class_linker.cc
-index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b6553827b3f 100644
+index 3adb6b1640..2f10e52086 100644
 --- a/runtime/class_linker.cc
 +++ b/runtime/class_linker.cc
 @@ -170,6 +170,37 @@ namespace art HIDDEN {
@@ -239,17 +239,19 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
    // Load the class from the dex file.
    if (UNLIKELY(!init_done_)) {
      // finish up init of hand crafted class_roots_
-@@ -3738,6 +3773,9 @@ ObjPtr<mirror::Class> ClassLinker::DefineClass(Thread* self,
+@@ -3738,6 +3773,11 @@ ObjPtr<mirror::Class> ClassLinker::DefineClass(Thread* self,
    // Notify native debugger of the new class and its layout.
    jit::Jit::NewTypeLoadedIfUsingJit(h_new_class.Get());
  
-+  R0DumpDumpClassMethodsByStrategy(
-+      h_new_class.Get(), kR0DumpStrategyDefineClass, image_pointer_size_);
++  // DEFINE_CLASS runs on the class-loading path.  Dumping every method here performs
++  // synchronous file I/O for each class and can block an app's main thread for minutes.
++  // The delayed ActivityThread class-walk collects the same method records without
++  // perturbing startup; DEFINE_CLASS remains useful for its backing-Dex export above.
 +
    return sdc.Finish(h_new_class);
  }
  
-@@ -4428,6 +4466,9 @@ void ClassLinker::LoadClassHelper::FillMethods(ObjPtr<mirror::Class> klass,
+@@ -4428,6 +4468,9 @@ void ClassLinker::LoadClassHelper::FillMethods(ObjPtr<mirror::Class> klass,
        }
        instr->InitializeMethodsCode(dst, entrypoint, kPointerSize);
      }
@@ -259,7 +261,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
    }
  }
  
-@@ -4455,6 +4496,8 @@ void ClassLinker::LoadClass(Thread* self,
+@@ -4455,6 +4498,8 @@ void ClassLinker::LoadClass(Thread* self,
                              const DexFile& dex_file,
                              const dex::ClassDef& dex_class_def,
                              Handle<mirror::Class> klass) {
@@ -268,7 +270,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
    ClassAccessor accessor(dex_file,
                           dex_class_def,
                           /* parse_hiddenapi_class_data= */ klass->IsBootStrapClassLoaded());
-@@ -4488,6 +4531,8 @@ void ClassLinker::LoadClass(Thread* self,
+@@ -4488,6 +4533,8 @@ void ClassLinker::LoadClass(Thread* self,
    }
    // Ensure that the card is marked so that remembered sets pick up native roots.
    WriteBarrier::ForEveryFieldWrite(klass.Get());
@@ -277,7 +279,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
    self->AllowThreadSuspension();
  }
  
-@@ -4750,6 +4795,7 @@ ObjPtr<mirror::DexCache> ClassLinker::RegisterDexFile(const DexFile& dex_file,
+@@ -4750,6 +4797,7 @@ ObjPtr<mirror::DexCache> ClassLinker::RegisterDexFile(const DexFile& dex_file,
    }
    VLOG(class_linker) << "Registered dex file " << dex_file.GetLocation();
    PaletteNotifyDexFileLoaded(dex_file.GetLocation().c_str());
@@ -285,7 +287,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
    return h_dex_cache.Get();
  }
  
-@@ -5401,6 +5447,8 @@ verifier::FailureKind ClassLinker::VerifyClass(Thread* self,
+@@ -5401,6 +5449,8 @@ verifier::FailureKind ClassLinker::VerifyClass(Thread* self,
    }
  
    UpdateClassAfterVerification(klass, image_pointer_size_, verifier_failure);
@@ -294,7 +296,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
    return verifier_failure;
  }
  
-@@ -6159,6 +6207,8 @@ bool ClassLinker::InitializeClass(Thread* self,
+@@ -6159,6 +6209,8 @@ bool ClassLinker::InitializeClass(Thread* self,
      if (clinit != nullptr) {
        CHECK(can_init_statics);
        JValue result;
@@ -303,7 +305,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
        clinit->Invoke(self, nullptr, 0, &result, "V");
      }
    }
-@@ -6204,6 +6254,10 @@ bool ClassLinker::InitializeClass(Thread* self,
+@@ -6204,6 +6256,10 @@ bool ClassLinker::InitializeClass(Thread* self,
    if (callback != nullptr) {
      callback->MakeVisible(self);
    }
@@ -314,7 +316,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
    return success;
  }
  
-@@ -10447,6 +10501,7 @@ ArtMethod* ClassLinker::ResolveMethodId(uint32_t method_idx,
+@@ -10447,6 +10503,7 @@ ArtMethod* ClassLinker::ResolveMethodId(uint32_t method_idx,
    if (resolved != nullptr) {
      DCHECK(!resolved->IsRuntimeMethod());
      DCHECK(resolved->GetDeclaringClassUnchecked() != nullptr) << resolved->GetDexMethodIndex();
@@ -322,7 +324,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
      return resolved;
    }
    // Fail, get the declaring class.
-@@ -10456,7 +10511,9 @@ ArtMethod* ClassLinker::ResolveMethodId(uint32_t method_idx,
+@@ -10456,7 +10513,9 @@ ArtMethod* ClassLinker::ResolveMethodId(uint32_t method_idx,
      Thread::Current()->AssertPendingException();
      return nullptr;
    }
@@ -334,7 +336,7 @@ index 3adb6b16401dba55a803a940cc8815e8c60dd1ed..410bdcec8d5876d55c4de183ace33b65
  
  ArtField* ClassLinker::LookupResolvedField(uint32_t field_idx,
 diff --git a/runtime/instrumentation.cc b/runtime/instrumentation.cc
-index 28c4f35db38d4823b0c55302f03b627330f7e353..6f1cb209378782d323c1bd0e90027446faafa93c 100644
+index 28c4f35db3..6f1cb20937 100644
 --- a/runtime/instrumentation.cc
 +++ b/runtime/instrumentation.cc
 @@ -57,6 +57,8 @@
@@ -371,7 +373,7 @@ index 28c4f35db38d4823b0c55302f03b627330f7e353..6f1cb209378782d323c1bd0e90027446
      Thread* self = Thread::Current();
      StackHandleScope<1> hs(self);
 diff --git a/runtime/instrumentation.h b/runtime/instrumentation.h
-index 5112f0e789faaba1e3eae281333c114a5f6a3d4d..d1e9597328afa906e35e3c485fbcb3121e19f12e 100644
+index 5112f0e789..d1e9597328 100644
 --- a/runtime/instrumentation.h
 +++ b/runtime/instrumentation.h
 @@ -54,6 +54,10 @@ class ShadowFrame;
@@ -406,7 +408,7 @@ index 5112f0e789faaba1e3eae281333c114a5f6a3d4d..d1e9597328afa906e35e3c485fbcb312
      }
    }
 diff --git a/runtime/interpreter/interpreter.cc b/runtime/interpreter/interpreter.cc
-index f96998f6fee43e6e29835828bf5c7a5ad3b16c33..3cb61ee36688e47b87f1f62358caadc1ffe161a5 100644
+index f96998f6fe..3cb61ee366 100644
 --- a/runtime/interpreter/interpreter.cc
 +++ b/runtime/interpreter/interpreter.cc
 @@ -38,6 +38,13 @@
@@ -433,7 +435,7 @@ index f96998f6fee43e6e29835828bf5c7a5ad3b16c33..3cb61ee36688e47b87f1f62358caadc1
      // If we can continue in JIT and have JITed code available execute JITed code.
      if (!stay_in_interpreter &&
 diff --git a/runtime/jit/jit.cc b/runtime/jit/jit.cc
-index 6167da1a394fba863385bd2e4521e5b0c22d6112..ed360b5eba1ca6ab78a5beef44c42f04b701fab7 100644
+index 6167da1a39..ed360b5eba 100644
 --- a/runtime/jit/jit.cc
 +++ b/runtime/jit/jit.cc
 @@ -62,6 +62,11 @@
@@ -465,7 +467,7 @@ index 6167da1a394fba863385bd2e4521e5b0c22d6112..ed360b5eba1ca6ab78a5beef44c42f04
    ScopedSetRuntimeThread ssrt(self);
    // TODO(ngeoffray): For JIT at first use, use kPreCompile. Currently we don't due to
 diff --git a/runtime/native/dalvik_system_DexFile.cc b/runtime/native/dalvik_system_DexFile.cc
-index da5fe5f0f2e590ec59b24f3098797cb8f5dcffdf..cec5a2dd47d39cdfc0b65944fe921168da367f9f 100644
+index da5fe5f0f2..cec5a2dd47 100644
 --- a/runtime/native/dalvik_system_DexFile.cc
 +++ b/runtime/native/dalvik_system_DexFile.cc
 @@ -16,6 +16,7 @@
@@ -935,7 +937,7 @@ index da5fe5f0f2e590ec59b24f3098797cb8f5dcffdf..cec5a2dd47d39cdfc0b65944fe921168
      NATIVE_METHOD(DexFile,
                    getDexOptNeeded,
 diff --git a/runtime/native/java_lang_reflect_Constructor.cc b/runtime/native/java_lang_reflect_Constructor.cc
-index bff5126b8260d38bf00e91d66187e892c254e4f0..9439b06a437662095fabc84566d633c8a3a76c84 100644
+index bff5126b82..9439b06a43 100644
 --- a/runtime/native/java_lang_reflect_Constructor.cc
 +++ b/runtime/native/java_lang_reflect_Constructor.cc
 @@ -36,6 +36,9 @@
@@ -957,7 +959,7 @@ index bff5126b8260d38bf00e91d66187e892c254e4f0..9439b06a437662095fabc84566d633c8
    Handle<mirror::Class> c(hs.NewHandle(m->GetDeclaringClass()));
    if (UNLIKELY(c->IsAbstract())) {
 diff --git a/runtime/native/java_lang_reflect_Method.cc b/runtime/native/java_lang_reflect_Method.cc
-index 92161f8bcd20260c9f2aa278eac8c66f929476f8..73e80a99b1aebc3d5a36511d5d0aa3df3f0c7ea4 100644
+index 92161f8bcd..73e80a99b1 100644
 --- a/runtime/native/java_lang_reflect_Method.cc
 +++ b/runtime/native/java_lang_reflect_Method.cc
 @@ -34,6 +34,9 @@
@@ -980,7 +982,7 @@ index 92161f8bcd20260c9f2aa278eac8c66f929476f8..73e80a99b1aebc3d5a36511d5d0aa3df
  }
  
 diff --git a/runtime/oat/oat_file.cc b/runtime/oat/oat_file.cc
-index 1f5ec38137895c848754ac67c206f8200c103fcf..88b0b41b2f94ac876e6ef2ecd92da86cf783018b 100644
+index 1f5ec38137..88b0b41b2f 100644
 --- a/runtime/oat/oat_file.cc
 +++ b/runtime/oat/oat_file.cc
 @@ -106,6 +106,10 @@ namespace art HIDDEN {
@@ -1020,7 +1022,7 @@ index 1f5ec38137895c848754ac67c206f8200c103fcf..88b0b41b2f94ac876e6ef2ecd92da86c
  
  uint32_t OatDexFile::GetOatClassOffset(uint16_t class_def_index) const {
 diff --git a/runtime/oat/oat_file_assistant.cc b/runtime/oat/oat_file_assistant.cc
-index 648995c1e3658820c9834e795a9a33650e07e2d0..1ae23391237f15d41572b3cbc344613bc19fd3d2 100644
+index 648995c1e3..1ae2339123 100644
 --- a/runtime/oat/oat_file_assistant.cc
 +++ b/runtime/oat/oat_file_assistant.cc
 @@ -64,6 +64,11 @@ namespace art HIDDEN {
@@ -1049,7 +1051,7 @@ index 648995c1e3658820c9834e795a9a33650e07e2d0..1ae23391237f15d41572b3cbc344613b
  }
  
 diff --git a/runtime/oat/oat_file_manager.cc b/runtime/oat/oat_file_manager.cc
-index 5612c0dcc9f766154c07dfa870c3cb95a5d5cc8a..ed18db735fc01982b230b6209a203ebd0e29851b 100644
+index 5612c0dcc9..ed18db735f 100644
 --- a/runtime/oat/oat_file_manager.cc
 +++ b/runtime/oat/oat_file_manager.cc
 @@ -65,6 +65,41 @@ namespace art HIDDEN {

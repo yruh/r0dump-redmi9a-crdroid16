@@ -6,15 +6,16 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ANDROID_ROOT="${ANDROID_ROOT:-$(cd -- "$SCRIPT_DIR/../../crdroid-16" 2>/dev/null && pwd || true)}"
 LUNCH_TARGET="${LUNCH_TARGET:-lineage_blossom-trunk_staging-userdebug}"
 BUILD_JOBS="${BUILD_JOBS:-4}"
-BUILD_HIGHMEM_JOBS="${BUILD_HIGHMEM_JOBS:-1}"
+BUILD_HIGHMEM_JOBS="${BUILD_HIGHMEM_JOBS:-2}"
 BUILD_DISABLE_LTO="${BUILD_DISABLE_LTO:-true}"
+BUILD_DEXER_HEAP_SIZE="${BUILD_DEXER_HEAP_SIZE:-2048M}"
 BUILD_MODE="${BUILD_MODE:-auto}"
 BUILD_SOONG_ONLY="${BUILD_SOONG_ONLY:-1}"
 BUILD_SOONG_GOMEMLIMIT="${BUILD_SOONG_GOMEMLIMIT:-10GiB}"
 BUILD_SOONG_GOGC="${BUILD_SOONG_GOGC:-50}"
 BUILD_MEMORY_HIGH="${BUILD_MEMORY_HIGH:-20G}"
-BUILD_MEMORY_MAX="${BUILD_MEMORY_MAX:-24G}"
-BUILD_SWAP_MAX="${BUILD_SWAP_MAX:-4G}"
+BUILD_MEMORY_MAX="${BUILD_MEMORY_MAX:-20G}"
+BUILD_SWAP_MAX="${BUILD_SWAP_MAX:-0G}"
 BUILD_MODULES="${BUILD_MODULES:-R0DUMPManager framework-minus-apex libart}"
 BUILD_NINJA_GRAPH="${BUILD_NINJA_GRAPH:-out/soong/build.lineage_blossom.ninja}"
 BUILD_NINJA_WRAPPER="${BUILD_NINJA_WRAPPER:-$SCRIPT_DIR/r0dump-soong-only.ninja}"
@@ -83,10 +84,6 @@ if [[ "$BUILD_MODE" != soong && -f "$BUILD_NINJA_GRAPH" ]]; then
     printf 'build: ERROR: cached Ninja wrapper not found: %s\n' "$BUILD_NINJA_WRAPPER" >&2
     exit 1
   }
-  [[ "$BUILD_HIGHMEM_JOBS" == 1 ]] || {
-    printf 'build: ERROR: cached mode currently requires BUILD_HIGHMEM_JOBS=1\n' >&2
-    exit 1
-  }
   read -r -a ninja_targets <<<"$BUILD_NINJA_TARGETS"
   ((${#ninja_targets[@]} > 0)) || {
     printf 'build: ERROR: BUILD_NINJA_TARGETS is empty\n' >&2
@@ -99,16 +96,18 @@ if [[ "$BUILD_MODE" != soong && -f "$BUILD_NINJA_GRAPH" ]]; then
     ninja_file=$2
     jobs=$3
     disable_lto=$4
-    shift 4
-    export USE_CCACHE=0
+    dexer_heap=$5
+    shift 5
+    unset USE_CCACHE CCACHE_EXEC
     export DISABLE_LTO="$disable_lto"
+    export R0DUMP_DEXER_HEAP_SIZE="$dexer_heap"
     export LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUTF8=1 PYTHONIOENCODING=UTF-8
     source build/envsetup.sh
     lunch "$lunch_target" >/dev/null
     exec prebuilts/build-tools/linux-x86/bin/ninja -d stats \
       -f "$ninja_file" -j"$jobs" "$@"
   ' build-r0dump "$LUNCH_TARGET" "$BUILD_NINJA_WRAPPER" "$BUILD_JOBS" \
-    "$BUILD_DISABLE_LTO" \
+    "$BUILD_DISABLE_LTO" "$BUILD_DEXER_HEAP_SIZE" \
     "${ninja_targets[@]}"
 fi
 
@@ -120,8 +119,9 @@ fi
 printf 'build: mode=soong jobs=%s highmem_jobs=%s modules=%s\n' \
   "$BUILD_JOBS" "$BUILD_HIGHMEM_JOBS" "$BUILD_MODULES"
 exec "${cgroup[@]}" bash -lc '
-  export USE_CCACHE=0
+  unset USE_CCACHE CCACHE_EXEC
   export DISABLE_LTO="$8"
+  export R0DUMP_DEXER_HEAP_SIZE="$9"
   export LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUTF8=1 PYTHONIOENCODING=UTF-8
   source build/envsetup.sh
   lunch "$1" >/dev/null
@@ -129,4 +129,4 @@ exec "${cgroup[@]}" bash -lc '
     GOMEMLIMIT="$6" GOGC="$7" m $2 -j"$3"
 ' build-r0dump "$LUNCH_TARGET" "$BUILD_MODULES" "$BUILD_JOBS" \
   "$BUILD_HIGHMEM_JOBS" "$BUILD_SOONG_ONLY" "$BUILD_SOONG_GOMEMLIMIT" "$BUILD_SOONG_GOGC" \
-  "$BUILD_DISABLE_LTO"
+  "$BUILD_DISABLE_LTO" "$BUILD_DEXER_HEAP_SIZE"

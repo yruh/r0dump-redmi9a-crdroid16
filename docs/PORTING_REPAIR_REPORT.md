@@ -1,6 +1,28 @@
 # R0DUMP crDroid 16 / Redmi 9A 完整移植修复报告
 
-日期：2026-08-11
+日期：2026-08-12
+
+> 本页同时保留早期闭环记录。2026-08-11 晚间追加的回归修复已完成整包构建；
+> 最终 ZIP 已离线校验，设备端 sideload/启动结果在 recovery 菜单完成后追加。
+
+## 追加修复记录（2026-08-11 晚间）
+
+上一版完整 ROM 的默认掩码把 `DEFINE_CLASS`（`0x100`）与安全路径一起打开。
+ART 在 class-loading 主线程内同步写 DEX/method 文件，Redmi 9A 上会表现为选中的
+应用黑屏或长时间无响应；进程被系统杀掉后，旧 `status.json` 又会永久停在
+`phase=dumping`。这与“昨天第一个能进系统的包”不同：那个包的导出路径尚未完整
+生效，所以能进入应用，但 dump/repair 结果不完整。
+
+本次修复：
+
+- 默认策略改为 `0x87`，`DEFINE_CLASS` 仅高级手动选项；旧 `0x187` 首次启动自动迁移。
+- method JSONL 文件一次运行只打开一次，每 128 条记录刷盘，避免 eMMC 上逐条
+  open/close。
+- class-walk 使用单线程、10 秒默认延迟和最多 300 秒硬截止；异常、超时和进程
+  退出都会收口为终态并记录原因。
+- Manager 能识别死进程留下的活动状态，显示为 `stopped/process_exit`，并关闭全局开关。
+- 状态中的异步字段不再硬编码；未请求时为 `disabled`，请求但没有安全队列时才为
+  `synchronous_fallback`。
 
 ## 1. 结论
 
@@ -65,7 +87,8 @@ crDroid 的构建产品名仍是 `lineage_blossom`，因为 crDroid 继承 Linea
 
 这里的 32/32 表示代码路径已接入、能通过 ARM32/ARM64 构建，不表示 32 种
 策略都已用不同加壳样本逐一实机触发。本次真机闭环使用默认安全组合
-`0x187`：Class walk、Application create、Activity create、InMemoryDex 和 DefineClass。
+`0x87`：Class walk、Application create、Activity create 和 InMemoryDex；DefineClass
+仅作为高级选项单独验证。
 
 ### 3.2 Manager
 
@@ -84,8 +107,8 @@ crDroid 的构建产品名仍是 `lineage_blossom`，因为 crDroid 继承 Linea
 - method record 按批次、包、进程、DEX 身份、method index、偏移、长度和 hash 去重。
 - 对导出范围和内存映射先校验；不可读稀疏区间写成文件空洞。
 - headerless raw dexdata 只在有可信 ART header 快照时重建。
-- 异步选项当前明确报告 `synchronous_fallback`；这是为避免 ART 裸指针离开
-  回调生命周期后失效，不是编译遗漏。
+- 未请求异步时状态明确报告 `disabled`；显式请求异步时才报告
+  `synchronous_fallback`。ART 指针仍在回调内复制，方法记录文件由持久 fd 批量刷盘。
 
 ## 4. 已修复问题
 
@@ -100,7 +123,7 @@ crDroid 的构建产品名仍是 `lineage_blossom`，因为 crDroid 继承 Linea
 修复后：
 
 - 阶段明确为 `configured`、`waiting_delay`、`class_walk`、`complete`、
-  `stopped`、`stopped_by_limit` 和 `class_walk_failed`。
+  `stopped`、`stopped_by_limit` 和 `class_walk_failed`；失败状态会主动停止运行。
 - 进入终态后，后到回调不得使阶段回退。
 - 新批次 ID 作为不可变参数提交，不再依赖可被 `onResume()` 覆盖的共享字段。
 - 真机 UI 流程中，20 秒上限到达后写入 `complete`，Manager 自动扫描并把
@@ -156,9 +179,11 @@ crDroid 的构建产品名仍是 `lineage_blossom`，因为 crDroid 继承 Linea
 - 补全 VNDK32 兼容库、NVRAM/sysenv shim 和指纹 HAL 选择。
 - 修复中文工作路径下 Soong sbox、build.prop 和 sepolicy Python 编码。
 - 禁用 LTO 后修复 Bionic AArch64 条件分支距离越界。
-- 构建前检查 `/tmp` 文件数、空间、inode、内存和 swap。
-- 最终参数为普通并行 4、highmem pool 1，`MemoryHigh=20G`、
-  `MemoryMax=24G`、`MemorySwapMax=4G`；没有使用无意义的全局 `-j2`。
+- 构建前清空并检查专用 `out/r0dump-tmp` 的文件数、空间和 inode，同时检查
+  内存和 swap；OTA 临时文件不再写入 16 GiB `/tmp`。
+- 完整 OTA 参数为普通并行 4、highmem pool 2，`MemoryHigh=20G`、
+  `MemoryMax=24G`、`MemorySwapMax=0G`。普通 dex/R8/D8 单进程堆为 `2048M`，
+  `Launcher3QuickStep` 单独为 `3072M`；没有使用全局 `-j2`。
 
 ## 5. 问题来源划分
 
@@ -199,22 +224,24 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 
 源码根目录：`<android-source>/crdroid-16`
 
-最终 `bacon` 构建：`172/172`，退出码 0，用时 5 分 59 秒。
+最终 `bacon` 构建成功退出。普通任务保持 `-j4`，D8/R8 highmem pool 深度为 2；
+完整编译和 OTA 封装均在 cgroup 内运行，观测峰值 19.2 GiB，`oom=0`、
+`oom_kill=0`。OTA 封装使用工作盘专用临时目录，未占满 `/tmp`。
 
 | 产物 | 大小（字节） | SHA-256 |
 | --- | ---: | --- |
-| `crDroidAndroid-16.0-20260811-blossom-v12.11.zip` | 1,407,907,513 | `850ee5547840835ff3179f2538233f7de4a60be30cf11516ec55fd9aaed9d766` |
+| `crDroidAndroid-16.0-20260811-blossom-v12.11.zip` | 1,407,740,513 | `25010572c73afd87ae85d8ee1aec0d4bb718aa239b0c34f6405239978cd9157f` |
 | `boot.img` | 67,108,864 | `5f8659835b313f95af1b35b356776fa304a3d12a92ee614be2f7f8fb0b63d8bd` |
-| `recovery.img` | 67,108,864 | `8be92ff85129a153c5aa1d93f2661248f76fbd1c6dd0cfff415f556692eea3f1` |
-| `system.img` | 1,487,642,624 | `e85e1e7f8d9283d3523a8dd45d4f6a37173f3095c234b365fcece7a5b68c6472` |
-| `system_ext.img` | 1,076,813,824 | `3a588e6a5dacadf2bac5dcf71e3fa5b8e9004264d28493ac8a8171568fb4c935` |
+| `recovery.img` | 67,108,864 | `efa079b132b6def5b9b239f3cc1629b602e4ff3fb23deef6e63a328db5adaa3f` |
+| `system.img` | 1,487,642,624 | `fe012916c0fc92a69d34be932b05183b74a0ae488bb19916e06c4a085bd348d5` |
+| `system_ext.img` | 1,076,813,824 | `e52aab2f94a06e1d5392ef3a59b2f4174bcc374f1c77fa84bfffe54797828ad0` |
 | `product.img` | 730,292,224 | `a8277a8993fb8c0d6e5e683f7f3f93dc8a384504f39bb56b54e721fa9778518d` |
 | `odm.img` | 1,593,344 | `44e921819ff4e8586e247066e4a44f63f4d35540f1f003ae47e8d4459b9bf444` |
-| `vendor.img` | 577,495,040 | `6f1a68e587a09c1fe3c32942ca95a4bfeccd60ed4c28e238b27c1ebe93609cbf` |
+| `vendor.img` | 577,495,040 | `1397ca93c24432140d969c68aed4c1513fbe7e1d88204a0259f04d3e1f895148` |
 | `vbmeta.img` | 65,536 | `42a80d539c771fbdbd34f21eb8ac7cbdb9c0b2423aa8550b28a529530c70fc1f` |
 | `vbmeta_system.img` | 65,536 | `1cfcf822558d98fc86a5bc6fd543daf2d7fe4fa2fb5cc0309514c5ad3e815d37` |
 | `vbmeta_vendor.img` | 65,536 | `01b60fe041a2d8d5cd46fdd829356e2e396433661e09d5097182ac87fb59b470` |
-| `R0DUMPManager.apk` | 50,700,656 | `82bfb443bad5696928fdbd5700940b6819838135f91b26cb4180201f995cbd18` |
+| `R0DUMPManager.apk` | 50,700,656 | `eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48` |
 
 关键中间产物：
 
@@ -257,8 +284,9 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 
 ## 10. 已知限制与剩余风险
 
-1. **最终 OTA 尚未再次整包安装**：与它等价的核心分区已刷入，且最终
-   Manager APK 已在真机激活，但最终 ZIP 本身只完成了离线完整性和 VINTF 验证。
+1. **最终 OTA 尚未再次整包安装**：最终 ZIP 已通过离线完整性和 VINTF 验证；
+   当前设备停在 recovery 主菜单，等待一次 `Apply from ADB` 选择后再记录刷入和
+   post-boot 结果。此前等价核心分区的运行闭环仍保留在上文。
 2. **使用测试密钥**：本地 userdebug OTA 使用 Android testkey/AVB test key，不是生产
    私钥发布包；顶层 vbmeta flags 为 3，适合解锁后的研发机，不是安全发行配置。
 3. **安全补丁偏旧**：构建中声明的 SPL 为 `2025-11-05`，相对当前日期已滞后。
@@ -269,8 +297,8 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 6. **高风险策略未逐项实机跑完**：全局模式、多进程 `all`、精确进程、raw
    mirror、force backfill、ANR 保护和所有高频 JIT/instrumentation 组合只完成构建/
    代码审计，未用专用样本逐个覆盖。
-7. **同步导出回退是有意设计**：`synchronous_fallback` 保证 ART 指针生命周期，尚未
-   实现“先安全拷贝、再后台持久化”的有界队列优化。
+7. **真正的异步队列仍未启用**：默认状态为 `disabled`；显式请求异步时使用
+   `synchronous_fallback`，但方法记录已改为持久 fd 和批量刷盘，避免逐条 open/close。
 8. **CompactDex 不是当前阻塞**：Android 16 正常应用路径使用标准 DEX/DEX 041，
    本次实测 `nonstandard_dex_methods_skipped=0`。不需要为当前端口补一个旧版
    CompactDex 转换器；未来遇到非标准样本时应按具体魔数和容器再处理。

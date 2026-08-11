@@ -142,10 +142,13 @@ public class MainActivity extends ComponentActivity {
     public static final int STRATEGY_DEFINE_CLASS_NATIVE = 1 << 29;
     public static final int STRATEGY_OAT_REGISTER = 1 << 30;
     public static final int STRATEGY_IMAGE_SPACE_DEX = 1 << 31;
+    // Keep startup responsive.  DEFINE_CLASS performs synchronous ART-side work and is
+    // intentionally an opt-in lab strategy; the delayed class walk supplies method records.
     private static final int DEFAULT_STRATEGY_MASK =
             STRATEGY_CLASS_WALK | STRATEGY_APP_CREATE
-                    | STRATEGY_ACTIVITY_CREATE | STRATEGY_IN_MEMORY_DEX
-                    | STRATEGY_DEFINE_CLASS;
+                    | STRATEGY_ACTIVITY_CREATE | STRATEGY_IN_MEMORY_DEX;
+    private static final int LEGACY_DEFAULT_STRATEGY_MASK =
+            DEFAULT_STRATEGY_MASK | STRATEGY_DEFINE_CLASS;
     private static final String DEFAULT_OUTPUT_ROOT = "/sdcard/Download/R0DUMP";
     private static final String STATUS_FILE_NAME = "status.json";
     private static final String LEGACY_STATUS_FILE_NAME = "_r0dump_status.json";
@@ -163,6 +166,12 @@ public class MainActivity extends ComponentActivity {
     private static final String UI_LOGCAT_R0DUMP_ONLY = "logcat_r0dump_only";
     private static final String UI_DEFINE_CLASS_DEFAULT_MIGRATED =
             "define_class_default_migrated";
+    private static final String UI_STARTUP_SAFE_DEFAULT_MIGRATED =
+            "startup_safe_default_migrated";
+    private static final String UI_PERFORMANCE_DEFAULTS_MIGRATED =
+            "performance_defaults_migrated_v2";
+    private static final String DEFAULT_DELAY_MS = "10000";
+    private static final long STATUS_STALE_GRACE_SECONDS = 15L;
     private static final long UI_REFRESH_DEBOUNCE_MS = 120L;
     private static final int LOGCAT_LINE_LIMIT = 300;
     private static final int LOGCAT_BUFFER_LINE_LIMIT = 2000;
@@ -373,7 +382,7 @@ public class MainActivity extends ComponentActivity {
         public String targetPackage = "";
         public String targetProcess = "";
         public String outputRoot = DEFAULT_OUTPUT_ROOT;
-        public String delayMs = "60000";
+        public String delayMs = DEFAULT_DELAY_MS;
         public String classPrefix = "";
         public String maxMethods = "0";
         public String maxRecords = "50000";
@@ -452,6 +461,7 @@ public class MainActivity extends ComponentActivity {
     public static final class UiStatusInfo {
         public boolean available;
         public boolean readError;
+        public boolean stale;
         public String message = "";
         public String filePath = "";
         public String packageName = "";
@@ -702,7 +712,7 @@ public class MainActivity extends ComponentActivity {
         out.targetPackage = text(out.targetPackage);
         out.targetProcess = text(out.targetProcess);
         out.outputRoot = nonEmpty(out.outputRoot, DEFAULT_OUTPUT_ROOT);
-        out.delayMs = nonEmpty(out.delayMs, "60000");
+        out.delayMs = nonEmpty(out.delayMs, DEFAULT_DELAY_MS);
         out.classPrefix = text(out.classPrefix);
         out.maxMethods = nonEmpty(out.maxMethods, "0");
         out.maxRecords = nonEmpty(out.maxRecords, "50000");
@@ -1060,12 +1070,33 @@ public class MainActivity extends ComponentActivity {
                 getContentResolver(), R0DUMP_SETTING_ANR_PROTECTION_ENABLED, 0) == 1;
         loaded.strategyMask = Settings.Global.getInt(
                 getContentResolver(), R0DUMP_SETTING_STRATEGY_MASK, DEFAULT_STRATEGY_MASK);
-        if (!getSharedPreferences(UI_PREFS, MODE_PRIVATE)
-                .getBoolean(UI_DEFINE_CLASS_DEFAULT_MIGRATED, false)) {
-            loaded.strategyMask |= STRATEGY_DEFINE_CLASS;
-            getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
-                    .putBoolean(UI_DEFINE_CLASS_DEFAULT_MIGRATED, true)
-                    .apply();
+        // Older builds promoted DEFINE_CLASS into the default mask.  Migrate only that exact
+        // legacy default so an intentionally customized mask is left untouched.
+        android.content.SharedPreferences uiPrefs = getSharedPreferences(UI_PREFS, MODE_PRIVATE);
+        if (!uiPrefs.getBoolean(UI_STARTUP_SAFE_DEFAULT_MIGRATED, false)) {
+            if (loaded.strategyMask == LEGACY_DEFAULT_STRATEGY_MASK) {
+                loaded.strategyMask = DEFAULT_STRATEGY_MASK;
+                Settings.Global.putInt(getContentResolver(), R0DUMP_SETTING_STRATEGY_MASK,
+                        loaded.strategyMask);
+                mLastActionValue = "已迁移为启动安全默认：DEFINE_CLASS 改为手动开启。";
+            }
+            uiPrefs.edit().putBoolean(UI_STARTUP_SAFE_DEFAULT_MIGRATED, true).apply();
+        }
+        // The previous build used a 60-second class-walk delay.  Migrate only
+        // that untouched legacy value so an explicitly chosen delay survives.
+        if (!uiPrefs.getBoolean(UI_PERFORMANCE_DEFAULTS_MIGRATED, false)) {
+            if (DEFAULT_DELAY_MS.equals(text(loaded.delayMs))
+                    || "60000".equals(text(loaded.delayMs))) {
+                loaded.delayMs = DEFAULT_DELAY_MS;
+                Settings.Global.putString(getContentResolver(), R0DUMP_SETTING_DELAY_MS,
+                        DEFAULT_DELAY_MS);
+            }
+            uiPrefs.edit().putBoolean(UI_PERFORMANCE_DEFAULTS_MIGRATED, true).apply();
+        }
+        // Preserve the marker used by pre-release builds; it is no longer used to enable the
+        // performance-sensitive strategy.
+        if (!uiPrefs.getBoolean(UI_DEFINE_CLASS_DEFAULT_MIGRATED, false)) {
+            uiPrefs.edit().putBoolean(UI_DEFINE_CLASS_DEFAULT_MIGRATED, true).apply();
         }
         loaded.showSystemApps = false;
         mConfig = copyConfig(loaded);
@@ -1093,7 +1124,7 @@ public class MainActivity extends ComponentActivity {
         boolean globalRuntimeEnabled = mConfig.globalRuntime;
         String pkg = globalRuntimeEnabled ? "*" : packageName();
         String output = nonEmpty(mConfig.outputRoot, DEFAULT_OUTPUT_ROOT);
-        String delay = nonEmpty(mConfig.delayMs, "60000");
+        String delay = nonEmpty(mConfig.delayMs, DEFAULT_DELAY_MS);
         String targetProcess = text(mConfig.targetProcess);
         String classPrefix = text(mConfig.classPrefix);
         String maxMethods = nonEmpty(mConfig.maxMethods, "0");
@@ -1266,7 +1297,7 @@ public class MainActivity extends ComponentActivity {
 
     private void applyOriginalPreset() {
         setStrategyMask(DEFAULT_STRATEGY_MASK);
-        mConfig.delayMs = "60000";
+        mConfig.delayMs = DEFAULT_DELAY_MS;
         mConfig.classWalkMode = "load_all";
         mConfig.classWalkThreads = "1";
         mConfig.processMode = "main_only";
@@ -1290,7 +1321,7 @@ public class MainActivity extends ComponentActivity {
     private void applyDynamicDexPreset() {
         setStrategyMask(DEFAULT_STRATEGY_MASK | STRATEGY_IN_MEMORY_DEX | STRATEGY_DEX_LOAD
                 | STRATEGY_DEFINE_CLASS);
-        mConfig.delayMs = "60000";
+        mConfig.delayMs = DEFAULT_DELAY_MS;
         mConfig.classWalkMode = "load_all";
         mConfig.classWalkThreads = "1";
         mConfig.processMode = "main_only";
@@ -1653,7 +1684,11 @@ public class MainActivity extends ComponentActivity {
         try {
             String content = readBoundedUtf8File(status, MAX_STATUS_FILE_BYTES);
             JSONObject object = new JSONObject(content);
+            boolean stale = normalizeStaleStatus(object);
             setStatusSummary(formatStatusSummary(object, status));
+            if (stale) {
+                mLastActionValue = "已收口已退出进程留下的旧 DUMP 状态。";
+            }
             String statusRunId = object.optString("run_id", "");
             String phase = object.optString("phase", "");
             if (!mConfig.globalRuntime && !"all".equals(text(mConfig.processMode))
@@ -1726,6 +1761,9 @@ public class MainActivity extends ComponentActivity {
         summary.append(getString(R.string.status_visual_paths,
                 object.optString("output_dir", ""),
                 statusFile.getAbsolutePath()));
+        if (object.optBoolean("_display_stale", false)) {
+            summary.append('\n').append("状态已收口：记录中的进程已退出，已停止显示为正在 DUMP。");
+        }
         return summary.toString();
     }
 
@@ -1740,6 +1778,7 @@ public class MainActivity extends ComponentActivity {
         try {
             String content = readBoundedUtf8File(statusFile, MAX_STATUS_FILE_BYTES);
             JSONObject object = new JSONObject(content);
+            out.stale = normalizeStaleStatus(object);
             out.available = true;
             out.packageName = cleanStatusText(object.optString("package", packageName()));
             out.processName = cleanStatusText(object.optString("process", "unknown"));
@@ -1836,6 +1875,58 @@ public class MainActivity extends ComponentActivity {
     private String cleanStatusText(String value) {
         String text = text(value);
         return text.isEmpty() ? getString(R.string.status_empty_value) : text;
+    }
+
+    private boolean normalizeStaleStatus(JSONObject object) {
+        if (object == null || !isStatusActivePhase(object.optString("phase", ""))) {
+            return false;
+        }
+        final int pid = object.optInt("pid", 0);
+        if (pid <= 0 || isStatusProcessAlive(pid)) {
+            return false;
+        }
+        final long updated = object.optLong("updated_at", 0L);
+        final long now = System.currentTimeMillis() / 1000L;
+        if (updated > 0L && (now < updated || now - updated < STATUS_STALE_GRACE_SECONDS)) {
+            return false;
+        }
+        try {
+            object.put("phase", "stopped");
+            object.put("stop_reason", "process_exit");
+            object.put("runtime_enabled", false);
+            object.put("_display_stale", true);
+        } catch (Throwable ignored) {
+            return false;
+        }
+        // A dead target must not leave the global switch armed for the next
+        // process.  The next explicit start writes a fresh run id.
+        try {
+            Settings.Global.putInt(getContentResolver(), R0DUMP_SETTING_ENABLED, 0);
+        } catch (Throwable ignored) {
+        }
+        return true;
+    }
+
+    private boolean isStatusProcessAlive(int pid) {
+        if (new File("/proc/" + pid).exists()) {
+            return true;
+        }
+        try {
+            ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            if (manager != null) {
+                List<ActivityManager.RunningAppProcessInfo> processes =
+                        manager.getRunningAppProcesses();
+                if (processes != null) {
+                    for (ActivityManager.RunningAppProcessInfo process : processes) {
+                        if (process != null && process.pid == pid) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     private String readStatusPhase(File status) {

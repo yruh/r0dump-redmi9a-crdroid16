@@ -16,7 +16,7 @@
     <string name="hint_target_package">Target package, e.g. com.example.app</string>
     <string name="hint_target_process">Target process. Empty = main/any process, * = all processes, or com.example.app:remote</string>
     <string name="hint_output_root">Output root, e.g. /sdcard/Download/R0DUMP. Empty = target app private directory</string>
-    <string name="hint_delay_ms">Startup delay in milliseconds, e.g. 60000</string>
+    <string name="hint_delay_ms">Startup delay in milliseconds, e.g. 10000</string>
     <string name="hint_class_prefix">Class name prefix filter. Empty = all, e.g. com.example.</string>
     <string name="hint_max_methods">Maximum active dump method count. 0 = unlimited</string>
     <string name="check_dump_constructors">Dump constructors</string>
@@ -47,7 +47,7 @@
     <string name="strategy_dex_load">Lab: dump dex when DexFile is loaded (useful for dynamic dex loading)</string>
     <string name="strategy_register_dex">Lab: dump dex when RegisterDexFile registers it (performance-sensitive)</string>
     <string name="strategy_in_memory_dex">Lab: InMemoryDexClassLoader / ByteBuffer dex dump (recommended for in-memory loaders)</string>
-    <string name="strategy_define_class">Lab: export raw/fixed dex and dump class methods at ClassLinker::DefineClass (test alone for DexProtector)</string>
+    <string name="strategy_define_class">Lab: export raw/fixed dex at ClassLinker::DefineClass; method records come from delayed class-walk (performance-sensitive, opt-in)</string>
     <string name="strategy_load_class">Lab: dump class methods after LoadClass (performance-sensitive)</string>
     <string name="strategy_resolve_method">Lab: dump when ResolveMethod resolves a method (high-frequency / high-overhead)</string>
     <string name="strategy_open_common">Lab: DexFileLoader OpenCommon dump (central dex open point)</string>
@@ -89,14 +89,14 @@
     <string name="label_trigger_strategies">Dump triggers</string>
     <string name="label_recommended_strategies">Recommended dump points</string>
     <string name="label_original_defaults">Original-equivalent defaults</string>
-    <string name="help_original_defaults">Default selection mirrors the original path: wait for Activity launch, walk classes, extract normal methods and constructors, then stop after completion. Keep this profile for first tests.</string>
+    <string name="help_original_defaults">The default profile prioritizes a usable target startup: wait for Activity, walk classes, extract methods and constructors, then stop. DEFINE_CLASS is an advanced opt-in strategy.</string>
     <string name="label_dex_open_strategies">Dex open / registration points</string>
     <string name="label_class_lifecycle_strategies">Class lifecycle / linker points</string>
     <string name="label_hot_execution_strategies">Hot execution points</string>
     <string name="label_route_audit_strategies">Route audit points</string>
     <string name="label_dangerous_active_strategies">Dangerous active invoke points</string>
     <string name="label_lab_strategies">Experimental strategies (default off)</string>
-    <string name="lab_strategy_hint">Recommended device test order: IN_MEMORY_DEX → DEFINE_CLASS → REGISTER_DEX → LOAD_CLASS → RESOLVE_METHOD.\nFor protectors that patch ART DexFile and wipe headers, test DEFINE_CLASS alone first. Enable one performance-sensitive or route-audit point at a time.</string>
+    <string name="lab_strategy_hint">Recommended device test order: IN_MEMORY_DEX → DEFINE_CLASS → REGISTER_DEX → LOAD_CLASS → RESOLVE_METHOD.\nEnable DEFINE_CLASS manually only when class-definition capture is needed; it adds ART work during startup. Test one performance-sensitive or route-audit point at a time.</string>
     <string name="section_target">1. Target app</string>
     <string name="section_output_timing">2. Output and timing</string>
     <string name="section_status">Dump status</string>
@@ -148,7 +148,7 @@
     <string name="logcat_display_cleared">Logcat display cleared</string>
     <string name="log_advice_in_memory_dex">Advice: IN_MEMORY_DEX is a good first test for in-memory / ByteBuffer dex loading.</string>
     <string name="log_warn_register_dex">Note: REGISTER_DEX is performance-sensitive; test it alone.</string>
-    <string name="log_warn_define_class">Note: DEFINE_CLASS is performance-sensitive; test it alone.</string>
+    <string name="log_warn_define_class">Note: DEFINE_CLASS is an advanced performance-sensitive strategy and may extend startup; test it alone.</string>
     <string name="log_warn_load_class">Note: LOAD_CLASS is performance-sensitive; test it alone.</string>
     <string name="log_warn_resolve_method">Warning: RESOLVE_METHOD is high-frequency / high-overhead; test it last and alone.</string>
     <string name="log_warn_resolve_real_invoke">Strong warning: do not enable RESOLVE_METHOD and REAL_INVOKE together; it can cause noticeable lag and duplicate dumps.</string>
@@ -179,7 +179,7 @@
     <string name="phase_configured">Configured, waiting for app startup</string>
     <string name="phase_waiting_delay">Waiting for configured delay</string>
     <string name="phase_class_walk">Walking classes and writing records</string>
-    <string name="phase_class_walk_failed">Class walk failed; hot dump remains available</string>
+    <string name="phase_class_walk_failed">Class walk failed; run stopped</string>
     <string name="phase_saved">Saved</string>
     <string name="phase_pending_save">Pending save</string>
     <string name="phase_complete">Complete</string>

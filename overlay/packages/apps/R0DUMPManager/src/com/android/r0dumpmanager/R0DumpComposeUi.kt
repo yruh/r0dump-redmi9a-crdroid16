@@ -2587,7 +2587,7 @@ private val DEX_OPEN_OPTIONS = listOf(
 )
 private val CLASS_LIFECYCLE_OPTIONS = listOf(
     StrategyOption("LoadMethod", "ClassLinker LoadMethod 时 dump，触发早但开销更大。", MainActivity.STRATEGY_LOAD_METHOD),
-    StrategyOption("DefineClass", "ClassLinker::DefineClass 时导出 raw/fixed dex，并补 dump 类方法；DexProtector 优先单独验证。", MainActivity.STRATEGY_DEFINE_CLASS),
+    StrategyOption("DefineClass", "ClassLinker::DefineClass 导出 raw/fixed dex；方法记录由延迟 class-walk 生成，属于性能敏感高级策略。", MainActivity.STRATEGY_DEFINE_CLASS),
     StrategyOption("LoadClass", "LoadClass 后 dump 该类方法。", MainActivity.STRATEGY_LOAD_CLASS),
     StrategyOption("ResolveMethod", "高频点，仅单独短时测试。", MainActivity.STRATEGY_RESOLVE_METHOD),
     StrategyOption("VerifyClass", "类校验完成后 dump。", MainActivity.STRATEGY_VERIFY_CLASS),

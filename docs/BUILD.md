@@ -30,16 +30,22 @@ base commit，不会修改 Android 工作树。
 | 参数 | 默认值 |
 | --- | ---: |
 | 普通 Ninja 并行 | 4 |
-| highmem pool | 1 |
+| highmem pool | 2 |
 | `MemoryHigh` | 20G |
 | `MemoryMax` | 24G |
-| `MemorySwapMax` | 4G |
-| Soong `GOMEMLIMIT` | 10GiB |
-| Soong `GOGC` | 50 |
+| `MemorySwapMax` | 0G |
+| dex/R8/D8 heap | 2048M |
+| Launcher3QuickStep R8 heap | 3072M |
+| Soong `GOMEMLIMIT` | 6GiB |
+| Soong `GOGC` | 40 |
 
-`check-build-resources.sh` 会在构建前检查 `/tmp` 文件数、磁盘、inode、
-`MemAvailable` 和 swap。`systemd-run --user --scope` 保证整个构建进程树
-都在同一个 cgroup 内存上限下。
+`build-full-ota.sh` 默认使用 `out/r0dump-tmp`，构建前清空该专用目录并检查
+文件数、磁盘、inode、`MemAvailable` 和 swap，要求至少 16 GiB 临时空间。
+这样 OTA 的 8 GiB 级目标文件不会写满小容量 `/tmp`。`systemd-run
+--user --scope` 保证整个构建进程树都在同一个 cgroup 内存上限下。
+
+普通任务仍使用 `-j4`。D8/R8 进入深度为 2 的 highmem pool；只有实测需要
+更大堆的 `Launcher3QuickStep` 使用 3072M，其余 dexer 使用 2048M。
 
 ## 完整 OTA
 
@@ -53,6 +59,8 @@ ANDROID_ROOT=/path/to/crdroid-16 scripts/build-full-ota.sh
 BUILD_JOBS=6 \
 BUILD_MEMORY_HIGH=20G \
 BUILD_MEMORY_MAX=24G \
+BUILD_DEXER_HEAP_SIZE=2048M \
+BUILD_LARGE_R8_HEAP_SIZE=3072M \
 ANDROID_ROOT=/path/to/crdroid-16 \
 scripts/build-full-ota.sh
 ```
@@ -87,4 +95,3 @@ sha256sum out/target/product/blossom/crDroidAndroid-16.0-*-blossom-v12.11.zip
 `patches/optional/900-host-gnu-date-tar.patch` 记录了验证主机上禁用 hermetic
 Toybox `date`/`tar` 的差异。它不是 Redmi 9A 运行时补丁，默认不应用；
 只有当构建日志明确证明主机 GNU 工具行为是必需时才使用。
-

@@ -1,5 +1,20 @@
+diff --git a/android/defs.go b/android/defs.go
+index 753b239cc..304c0a5ca 100644
+--- a/android/defs.go
++++ b/android/defs.go
+@@ -166,6 +166,10 @@ var (
+ 	highmemPool = blueprint.NewBuiltinPool("highmem_pool")
+ )
+ 
++// HighmemPool is shared by Java/Dex rules that can otherwise exhaust the host
++// while the main Ninja graph is resident.
++var HighmemPool = highmemPool
++
+ func init() {
+ 	pctx.Import("github.com/google/blueprint/bootstrap")
+ 
 diff --git a/cc/lto.go b/cc/lto.go
-index d8d8dccdc43000403b61a130ff47124b732b757c..8e0cb5b5c166049131f99d51e228c9add2655762 100644
+index d8d8dccdc..8e0cb5b5c 100644
 --- a/cc/lto.go
 +++ b/cc/lto.go
 @@ -91,7 +91,7 @@ func (lto *lto) begin(ctx BaseModuleContext) {
@@ -12,7 +27,7 @@ index d8d8dccdc43000403b61a130ff47124b732b757c..8e0cb5b5c166049131f99d51e228c9ad
  		ltoEnabled = true
  	} else if ctx.testBinary() || ctx.testLibrary() {
 diff --git a/cmd/sbox/sbox.go b/cmd/sbox/sbox.go
-index 466c8831295babd42a5570f56ad289d9d5e05161..054ec5b1f782ee7a9ddd3c43ad9a14308ea494b9 100644
+index 466c88312..054ec5b1f 100644
 --- a/cmd/sbox/sbox.go
 +++ b/cmd/sbox/sbox.go
 @@ -226,6 +226,18 @@ func createEnv(command *sbox_proto.Command) ([]string, error) {
@@ -34,8 +49,224 @@ index 466c8831295babd42a5570f56ad289d9d5e05161..054ec5b1f782ee7a9ddd3c43ad9a1430
  	for _, envVar := range command.Env {
  		if envVar.Name == nil || !envVarNameRegex.MatchString(*envVar.Name) {
  			name := "nil"
+diff --git a/java/config/config.go b/java/config/config.go
+index 2b539abd7..e3adbcb24 100644
+--- a/java/config/config.go
++++ b/java/config/config.go
+@@ -86,17 +86,20 @@ func init() {
+ 
+ 	// D8 invocations are shorter lived, so we restrict their JIT tiering relative to R8.
+ 	// Note that the `-JXX` prefix syntax is specific to the R8/D8 invocation wrappers.
+-	pctx.StaticVariable("D8Flags", strings.Join(append([]string{
+-		"-JXmx4096M",
+-		"-JXX:+TieredCompilation",
+-		"-JXX:TieredStopAtLevel=1",
+-		"-JDcom.android.tools.r8.emitRecordAnnotationsInDex",
+-		"-JDcom.android.tools.r8.emitPermittedSubclassesAnnotationsInDex",
+-	}, dexerJavaVmFlagsList...), " "))
++	// Full OTA builds can lower both heaps without changing the target artifacts.
++	pctx.VariableFunc("D8Flags", func(ctx android.PackageVarContext) string {
++		return strings.Join(append([]string{
++			"-JXmx" + dexerHeapSize(ctx),
++			"-JXX:+TieredCompilation",
++			"-JXX:TieredStopAtLevel=1",
++			"-JDcom.android.tools.r8.emitRecordAnnotationsInDex",
++			"-JDcom.android.tools.r8.emitPermittedSubclassesAnnotationsInDex",
++		}, dexerJavaVmFlagsList...), " ")
++	})
+ 
+ 	pctx.VariableFunc("R8Flags", func(ctx android.PackageVarContext) string {
+ 		r8flags := append([]string{
+-			"-JXmx4096M",
++			"-JXmx" + dexerHeapSize(ctx),
+ 			"-JDcom.android.tools.r8.emitRecordAnnotationsInDex",
+ 			"-JDcom.android.tools.r8.emitPermittedSubclassesAnnotationsInDex",
+ 		}, dexerJavaVmFlagsList...)
+@@ -233,6 +236,13 @@ func init() {
+ 	hostJNIToolVariableWithSdkToolsPrebuilt("SignapkJniLibrary", "libconscrypt_openjdk_jni")
+ }
+ 
++func dexerHeapSize(ctx android.PackageVarContext) string {
++	if size := ctx.Config().Getenv("R0DUMP_DEXER_HEAP_SIZE"); size != "" {
++		return size
++	}
++	return "4096M"
++}
++
+ func hostBinToolVariableWithSdkToolsPrebuilt(name, tool string) {
+ 	pctx.VariableFunc(name, func(ctx android.PackageVarContext) string {
+ 		if ctx.Config().AlwaysUsePrebuiltSdks() {
+diff --git a/java/dex.go b/java/dex.go
+index 8521660e3..21aac727a 100644
+--- a/java/dex.go
++++ b/java/dex.go
+@@ -218,6 +218,7 @@ var d8IncClean = pctx.AndroidStaticRule("d8Inc-partialcompileclean",
+ 
+ var d8Inc, d8IncRE = pctx.MultiCommandRemoteStaticRules("d8Inc",
+ 	blueprint.RuleParams{
++		Pool: android.HighmemPool,
+ 		Command: `mkdir -p "$outDir" "$outDir/packages" && ` +
+ 			`${config.IncrementalDexInputCmd} ` +
+ 			`--classesJar $in --dexTarget $out --deps $d8Deps --outputDir $outDir --packageOutputDir $outDir/packages && ` +
+@@ -258,11 +259,12 @@ var d8IncR8Clean = pctx.AndroidStaticRule("d8Incr8-partialcompileclean",
+ 		Command: `rm -rf "${outDir}" "${outDict}" "${outConfig}" "${outUsage}" "${outUsageZip}" "${outUsageDir}" ` +
+ 			`"${resourcesOutput}" "${outR8ArtProfile}" ${builtOut} ${d8Deps}`,
+ 	}, "outDir", "outDict", "outConfig", "outUsage", "outUsageZip", "outUsageDir", "builtOut",
+-	"d8Flags", "d8Deps", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile", "implicits",
++	"d8Flags", "d8Deps", "r8JvmFlags", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile", "implicits",
+ )
+ 
+ var d8IncR8, d8IncR8RE = pctx.MultiCommandRemoteStaticRules("d8Incr8",
+ 	blueprint.RuleParams{
++		Pool: android.HighmemPool,
+ 		Command: `mkdir -p "$outDir" "$outDir/packages" && ` +
+ 			`rm -f "$outDict" && rm -f "$outConfig" && rm -rf "${outUsageDir}" && ` +
+ 			`mkdir -p $$(dirname ${outUsage}) && ` +
+@@ -274,7 +276,7 @@ var d8IncR8, d8IncR8RE = pctx.MultiCommandRemoteStaticRules("d8Incr8",
+ 			` $d8Template${config.D8Cmd} ${config.D8Flags} $d8Flags --output $outDir --no-dex-input-jar $in --packages $out.rsp --mod-packages $out.inc.rsp --package-output $outDir/packages; ` +
+ 			`else ` +
+ 			` rm -rf "$outDir" && mkdir -p "$outDir" && ` +
+-			` $r8Template${config.R8Cmd} ${config.R8Flags} $r8Flags -injars $in --output $outDir ` +
++			` $r8Template${config.R8Cmd} ${config.R8Flags} $r8JvmFlags $r8Flags -injars $in --output $outDir ` +
+ 			` --no-data-resources ` +
+ 			` -printmapping ${outDict} ` +
+ 			` -printconfiguration ${outConfig} ` +
+@@ -322,10 +324,11 @@ var d8IncR8, d8IncR8RE = pctx.MultiCommandRemoteStaticRules("d8Incr8",
+ 			Platform:     map[string]string{remoteexec.PoolKey: "${config.REJavaPool}"},
+ 		},
+ 	}, []string{"outDir", "outDict", "outConfig", "outUsage", "outUsageZip", "outUsageDir",
+-		"d8Flags", "d8Deps", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile"}, []string{"implicits"})
++		"d8Flags", "d8Deps", "r8JvmFlags", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile"}, []string{"implicits"})
+ 
+ var d8, d8RE = pctx.MultiCommandRemoteStaticRules("d8",
+ 	blueprint.RuleParams{
++		Pool: android.HighmemPool,
+ 		Command: `rm -rf "$outDir" && mkdir -p "$outDir" && ` +
+ 			`$d8Template${config.D8Cmd} ${config.D8Flags} $d8Flags --output $outDir --no-dex-input-jar $in && ` +
+ 			`$zipTemplate${config.SoongZipCmd} $zipFlags -o $outDir/classes.dex.jar -C $outDir -f "$outDir/classes*.dex" && ` +
+@@ -360,11 +363,12 @@ var d8r8Clean = pctx.AndroidStaticRule("d8r8-partialcompileclean",
+ 		Command: `rm -rf "${outDir}" "${outDict}" "${outConfig}" "${outUsage}" "${outUsageZip}" "${outUsageDir}" ` +
+ 			`"${resourcesOutput}" "${outR8ArtProfile}" ${builtOut}`,
+ 	}, "outDir", "outDict", "outConfig", "outUsage", "outUsageZip", "outUsageDir", "builtOut",
+-	"d8Flags", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile", "implicits",
++	"d8Flags", "r8JvmFlags", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile", "implicits",
+ )
+ 
+ var d8r8, d8r8RE = pctx.MultiCommandRemoteStaticRules("d8r8",
+ 	blueprint.RuleParams{
++		Pool: android.HighmemPool,
+ 		Command: `rm -rf "$outDir" && mkdir -p "$outDir" && ` +
+ 			`rm -f "$outDict" && rm -f "$outConfig" && rm -rf "${outUsageDir}" && ` +
+ 			`mkdir -p $$(dirname ${outUsage}) && ` +
+@@ -374,7 +378,7 @@ var d8r8, d8r8RE = pctx.MultiCommandRemoteStaticRules("d8r8",
+ 			` done && ` +
+ 			` $d8Template${config.D8Cmd} ${config.D8Flags} $d8Flags --output $outDir --no-dex-input-jar $in; ` +
+ 			`else ` +
+-			` $r8Template${config.R8Cmd} ${config.R8Flags} $r8Flags -injars $in --output $outDir ` +
++			` $r8Template${config.R8Cmd} ${config.R8Flags} $r8JvmFlags $r8Flags -injars $in --output $outDir ` +
+ 			` --no-data-resources ` +
+ 			` -printmapping ${outDict} ` +
+ 			` -printconfiguration ${outConfig} ` +
+@@ -419,14 +423,15 @@ var d8r8, d8r8RE = pctx.MultiCommandRemoteStaticRules("d8r8",
+ 			Platform:     map[string]string{remoteexec.PoolKey: "${config.REJavaPool}"},
+ 		},
+ 	}, []string{"outDir", "outDict", "outConfig", "outUsage", "outUsageZip", "outUsageDir",
+-		"d8Flags", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile"}, []string{"implicits"})
++		"d8Flags", "r8JvmFlags", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile"}, []string{"implicits"})
+ 
+ var r8, r8RE = pctx.MultiCommandRemoteStaticRules("r8",
+ 	blueprint.RuleParams{
++		Pool: android.HighmemPool,
+ 		Command: `rm -rf "$outDir" && mkdir -p "$outDir" && ` +
+ 			`rm -f "$outDict" && rm -f "$outConfig" && rm -rf "${outUsageDir}" && ` +
+ 			`mkdir -p $$(dirname ${outUsage}) && ` +
+-			`$r8Template${config.R8Cmd} ${config.R8Flags} $r8Flags -injars $in --output $outDir ` +
++			`$r8Template${config.R8Cmd} ${config.R8Flags} $r8JvmFlags $r8Flags -injars $in --output $outDir ` +
+ 			`--no-data-resources ` +
+ 			`-printmapping ${outDict} ` +
+ 			`-printconfiguration ${outConfig} ` +
+@@ -470,7 +475,7 @@ var r8, r8RE = pctx.MultiCommandRemoteStaticRules("r8",
+ 			Platform:     map[string]string{remoteexec.PoolKey: "${config.REJavaPool}"},
+ 		},
+ 	}, []string{"outDir", "outDict", "outConfig", "outUsage", "outUsageZip", "outUsageDir",
+-		"r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile"}, []string{"implicits"})
++		"r8JvmFlags", "r8Flags", "zipFlags", "mergeZipsFlags", "resourcesOutput", "outR8ArtProfile"}, []string{"implicits"})
+ 
+ var proguardDictToProto = pctx.AndroidStaticRule("proguard_dict_to_proto", blueprint.RuleParams{
+ 	Command:     `${symbols_map} -r8 $in -location $location -write_if_changed $out`,
+@@ -776,6 +781,21 @@ func (d *dexer) r8Flags(ctx android.ModuleContext, dexParams *compileDexParams,
+ 	return r8Flags, r8Deps, artProfileOutput
+ }
+ 
++func r8JvmFlags(ctx android.ModuleContext) string {
++	heapSize := ctx.Config().Getenv("R0DUMP_LARGE_R8_HEAP_SIZE")
++	if heapSize == "" {
++		return ""
++	}
++
++	modules := strings.FieldsFunc(ctx.Config().Getenv("R0DUMP_LARGE_R8_MODULES"), func(r rune) bool {
++		return r == ',' || r == ';' || r == ':' || r == ' ' || r == '\t' || r == '\n'
++	})
++	if android.InList(ctx.ModuleName(), modules) {
++		return "-JXmx" + heapSize
++	}
++	return ""
++}
++
+ type compileDexParams struct {
+ 	flags           javaBuilderFlags
+ 	sdkVersion      android.SdkSpec
+@@ -862,6 +882,7 @@ func (d *dexer) compileDex(ctx android.ModuleContext, dexParams *compileDexParam
+ 		debugMode := android.InList("--debug", commonFlags)
+ 		r8Flags, r8Deps, r8ArtProfileOutputPath := d.r8Flags(ctx, dexParams, debugMode, useD8Inc)
+ 		deps = append(deps, r8Deps...)
++		args["r8JvmFlags"] = r8JvmFlags(ctx)
+ 		args["r8Flags"] = strings.Join(append(commonFlags, r8Flags...), " ")
+ 		if r8ArtProfileOutputPath != nil {
+ 			artProfileOutputPath = r8ArtProfileOutputPath
+diff --git a/java/dex_test.go b/java/dex_test.go
+index 8c1e5f7df..95427f79a 100644
+--- a/java/dex_test.go
++++ b/java/dex_test.go
+@@ -93,6 +93,36 @@ func TestR8(t *testing.T) {
+ 		corePlatformAppR8.Args["r8Flags"], "--android-platform-build")
+ }
+ 
++func TestR8ModuleJvmHeapOverride(t *testing.T) {
++	t.Parallel()
++	result := android.GroupFixturePreparers(
++		PrepareForTestWithJavaDefaultModules,
++		android.FixtureModifyEnv(func(env map[string]string) {
++			env["R0DUMP_LARGE_R8_MODULES"] = "large_app,other_large_app"
++			env["R0DUMP_LARGE_R8_HEAP_SIZE"] = "3072M"
++		}),
++	).RunTestWithBp(t, `
++		android_app {
++			name: "large_app",
++			srcs: ["foo.java"],
++			platform_apis: true,
++		}
++
++		android_app {
++			name: "regular_app",
++			srcs: ["foo.java"],
++			platform_apis: true,
++		}
++	`)
++
++	largeAppR8 := result.ModuleForTests(t, "large_app", "android_common").Rule("r8")
++	regularAppR8 := result.ModuleForTests(t, "regular_app", "android_common").Rule("r8")
++	android.AssertStringEquals(t, "large module R8 heap override",
++		"-JXmx3072M", largeAppR8.Args["r8JvmFlags"])
++	android.AssertStringEquals(t, "regular module must use the global R8 heap",
++		"", regularAppR8.Args["r8JvmFlags"])
++}
++
+ func TestR8TransitiveDeps(t *testing.T) {
+ 	t.Parallel()
+ 	bp := `
 diff --git a/scripts/gen_build_prop.py b/scripts/gen_build_prop.py
-index 8885ae6de58ad354ef684c1548ae4cc8c2f9605e..977d6653a6cdb23a9d8b93e4f2a7b9c249f42061 100644
+index 8885ae6de..977d6653a 100644
 --- a/scripts/gen_build_prop.py
 +++ b/scripts/gen_build_prop.py
 @@ -40,6 +40,14 @@ def get_build_flavor(product_config):
@@ -68,7 +299,7 @@ index 8885ae6de58ad354ef684c1548ae4cc8c2f9605e..977d6653a6cdb23a9d8b93e4f2a7b9c2
      # release build number or branch.buld_number non-release builds
  
 diff --git a/ui/build/soong.go b/ui/build/soong.go
-index c9b303c5bf7c217ebe362c788810a4e031e26333..21f4f852f6b270ac0949fe4b55d869e1055b9f49 100644
+index c9b303c5b..21f4f852f 100644
 --- a/ui/build/soong.go
 +++ b/ui/build/soong.go
 @@ -226,6 +226,11 @@ func (pb PrimaryBuilderFactory) primaryBuilderInvocation(config Config) bootstra

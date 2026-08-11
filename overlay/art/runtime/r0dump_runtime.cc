@@ -47,6 +47,10 @@ constexpr size_t kMaxCodeItemSize = 4u * 1024u * 1024u;
 
 std::mutex gR0DumpMutex;
 std::mutex gR0DumpIoMutex;
+// Keep the method record stream open for the lifetime of a run. Opening and
+// closing a file for every reflected method dominates the cost on eMMC.
+int gR0DumpMethodsFd = -1;
+std::string gR0DumpMethodsPath;
 std::atomic<bool> gR0DumpEnabled{false};
 std::atomic<bool> gR0DumpTerminal{false};
 std::atomic<uint32_t> gR0DumpStrategyMask{0u};
@@ -273,6 +277,51 @@ bool WriteAll(const std::string& path, const void* data, size_t size, bool appen
     fsync(fd);
   }
   close(fd);
+  return true;
+}
+
+void CloseMethodRecordFile() {
+  std::lock_guard<std::mutex> lock(gR0DumpIoMutex);
+  if (gR0DumpMethodsFd >= 0) {
+    fsync(gR0DumpMethodsFd);
+    close(gR0DumpMethodsFd);
+    gR0DumpMethodsFd = -1;
+  }
+  gR0DumpMethodsPath.clear();
+}
+
+bool AppendMethodRecord(const std::string& path, const std::string& record,
+                        uint64_t record_count) {
+  std::lock_guard<std::mutex> lock(gR0DumpIoMutex);
+  if (gR0DumpMethodsFd < 0 || gR0DumpMethodsPath != path) {
+    if (gR0DumpMethodsFd >= 0) {
+      fsync(gR0DumpMethodsFd);
+      close(gR0DumpMethodsFd);
+    }
+    gR0DumpMethodsFd = open(path.c_str(), O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0660);
+    if (gR0DumpMethodsFd < 0) {
+      gR0DumpMethodsPath.clear();
+      return false;
+    }
+    gR0DumpMethodsPath = path;
+  }
+  const uint8_t* cursor = reinterpret_cast<const uint8_t*>(record.data());
+  size_t remaining = record.size();
+  while (remaining != 0u) {
+    const ssize_t written = TEMP_FAILURE_RETRY(write(gR0DumpMethodsFd, cursor, remaining));
+    if (written <= 0) {
+      close(gR0DumpMethodsFd);
+      gR0DumpMethodsFd = -1;
+      gR0DumpMethodsPath.clear();
+      return false;
+    }
+    cursor += written;
+    remaining -= static_cast<size_t>(written);
+  }
+  // Flush periodically so a killed process only loses a small tail.
+  if ((record_count % 128u) == 0u) {
+    fsync(gR0DumpMethodsFd);
+  }
   return true;
 }
 
@@ -797,13 +846,9 @@ void DumpMethod(ArtMethod* method, const DexFile* fallback, uint32_t strategy)
       item_offset, item_len, JsonEscape(method_name).c_str(), Hex64(item_hash).c_str(),
       Base64(item, item_len).c_str(), force_extra.c_str());
   const std::string path = OutputDir() + "/methods_" + std::to_string(getpid()) + ".jsonl";
-  bool written = false;
-  {
-    std::lock_guard<std::mutex> lock(gR0DumpIoMutex);
-    written = WriteAll(path, record.data(), record.size(), true);
-  }
+  const uint64_t count = gR0DumpMethodRecords.load(std::memory_order_relaxed);
+  const bool written = AppendMethodRecord(path, record, count);
   if (written) {
-    const uint64_t count = gR0DumpMethodRecords.load(std::memory_order_relaxed);
     if (!gR0DumpEnabled.load(std::memory_order_relaxed) || (count % 256u) == 0u) {
       WriteStatus(gR0DumpEnabled.load(std::memory_order_relaxed)
           ? "dumping" : "stopped_by_limit");
@@ -849,6 +894,8 @@ void WriteStatus(const char* phase) {
     strategies += "\"" + std::string(StrategyName(bit)) + "\"";
   }
   strategies += "]";
+  const char* async_mode = gR0DumpAsync.load(std::memory_order_relaxed)
+      ? "synchronous_fallback" : "disabled";
   const std::string status = android::base::StringPrintf(
       "{\"schema_version\":2,\"run_id\":\"%s\",\"package\":\"%s\","
       "\"process\":\"%s\",\"phase\":\"%s\",\"stop_reason\":\"%s\","
@@ -860,7 +907,7 @@ void WriteStatus(const char* phase) {
       "\"reconstruction_failures\":%llu,"
       "\"duplicate_methods_skipped\":%llu,\"nonstandard_dex_methods_skipped\":%llu,"
       "\"invalid_methods_skipped\":%llu,"
-      "\"async_export_requested\":%s,\"async_export_mode\":\"synchronous_fallback\","
+      "\"async_export_requested\":%s,\"async_export_mode\":\"%s\","
       "\"force_backfill_attempts\":%llu,\"force_backfill_success\":%llu,"
       "\"force_backfill_failed\":%llu,\"force_backfill_skipped_by_guard\":%llu,"
       "\"force_backfill_invoked_unchanged\":%llu,"
@@ -883,7 +930,7 @@ void WriteStatus(const char* phase) {
       static_cast<unsigned long long>(gR0DumpDuplicates.load()),
       static_cast<unsigned long long>(gR0DumpNonstandardDexSkipped.load()),
       static_cast<unsigned long long>(gR0DumpInvalid.load()),
-      gR0DumpAsync.load(std::memory_order_relaxed) ? "true" : "false",
+      gR0DumpAsync.load(std::memory_order_relaxed) ? "true" : "false", async_mode,
       static_cast<unsigned long long>(gR0DumpForceBackfillAttempts.load()),
       static_cast<unsigned long long>(gR0DumpForceBackfillSuccess.load()),
       static_cast<unsigned long long>(gR0DumpForceBackfillFailed.load()),
@@ -915,6 +962,7 @@ extern "C" void configureR0DumpRuntime(const char* output_root,
                                        uint64_t max_records,
                                        uint64_t max_seconds,
                                        bool stop_after_complete) {
+  CloseMethodRecordFile();
   {
     std::lock_guard<std::mutex> lock(gR0DumpMutex);
     if (output_root != nullptr && output_root[0] != '\0') {
@@ -966,12 +1014,17 @@ extern "C" void configureR0DumpRuntime(const char* output_root,
 }
 
 extern "C" void stopR0DumpRuntime(const char* reason) {
-  gR0DumpEnabled.store(false);
+  const bool was_enabled = gR0DumpEnabled.exchange(false);
+  if (!was_enabled && gR0DumpTerminal.load(std::memory_order_relaxed)) {
+    CloseMethodRecordFile();
+    return;
+  }
   gR0DumpTerminal.store(true, std::memory_order_relaxed);
   {
     std::lock_guard<std::mutex> lock(gR0DumpMutex);
     gR0DumpStopReason = reason != nullptr ? reason : "stopped";
   }
+  CloseMethodRecordFile();
   WriteStatus("stopped");
 }
 
@@ -1030,7 +1083,13 @@ extern "C" void noteR0DumpPhase(const char* phase) {
 extern "C" void markR0DumpComplete() {
   const bool stop_after_complete = gR0DumpStopAfterComplete.load();
   if (stop_after_complete) {
-    gR0DumpEnabled.store(false);
+    const bool was_enabled = gR0DumpEnabled.exchange(false);
+    // Preserve a terminal max-records/max-seconds result.
+    if (!was_enabled && gR0DumpTerminal.load(std::memory_order_relaxed)) {
+      CloseMethodRecordFile();
+      return;
+    }
+    CloseMethodRecordFile();
   }
   gR0DumpTerminal.store(stop_after_complete, std::memory_order_relaxed);
   WriteStatus("complete");

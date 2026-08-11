@@ -1,5 +1,5 @@
 diff --git a/core/java/android/app/ActivityThread.java b/core/java/android/app/ActivityThread.java
-index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4867949d6 100644
+index 0c6afb47a8fe..53121dfdae8a 100644
 --- a/core/java/android/app/ActivityThread.java
 +++ b/core/java/android/app/ActivityThread.java
 @@ -109,6 +109,7 @@ import android.content.res.ResourceTimer;
@@ -38,7 +38,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
  import java.util.concurrent.atomic.AtomicInteger;
  import java.util.function.Consumer;
  import java.util.stream.Collectors;
-@@ -345,6 +351,69 @@ public final class ActivityThread extends ClientTransactionHandler
+@@ -345,6 +351,73 @@ public final class ActivityThread extends ClientTransactionHandler
      private static final boolean DEBUG_PROVIDER = false;
      public static final boolean DEBUG_ORDER = false;
      private static final boolean DEBUG_APP_INFO = false;
@@ -99,16 +99,20 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
 +    private static final int R0DUMP_STRATEGY_IN_MEMORY_DEX = 1 << 7;
 +    private static final int R0DUMP_STRATEGY_DEFINE_CLASS = 1 << 8;
 +    private static final int R0DUMP_STRATEGY_JAVA_DEXFILE_ROUTE = 1 << 28;
++    // DEFINE_CLASS is an opt-in lab hook.  Its ART callback performs synchronous export work;
++    // the delayed class-walk path is the default source of method records.
 +    private static final int R0DUMP_DEFAULT_STRATEGY_MASK =
-+            R0DUMP_STRATEGY_CLASS_WALK | (1 << 1) | (1 << 2) | (1 << 7) | (1 << 8);
++            R0DUMP_STRATEGY_CLASS_WALK | (1 << 1) | (1 << 2) | (1 << 7);
 +    private static final int R0DUMP_MAX_CLASS_LOADERS = 8;
 +    private static final int R0DUMP_MAX_CLASS_NAMES = 20000;
++    private static final int R0DUMP_DEFAULT_DELAY_MS = 10000;
++    private static final long R0DUMP_MAX_CLASS_WALK_MS = 300000L;
 +    private static final int R0DUMP_DEFAULT_MAX_RECORDS = 50000;
 +    private static final int R0DUMP_DEFAULT_MAX_SECONDS = 300;
      private static final long MIN_TIME_BETWEEN_GCS = 5*1000;
      /**
       * The delay to release the provider when it has no more references. It reduces the number of
-@@ -413,6 +482,74 @@ public final class ActivityThread extends ClientTransactionHandler
+@@ -413,6 +486,75 @@ public final class ActivityThread extends ClientTransactionHandler
  
      @UnsupportedAppUsage
      private ContextImpl mSystemContext;
@@ -130,7 +134,8 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
 +        String classPrefix = "";
 +        String classWalkMode = R0DUMP_CLASS_WALK_LOAD_ALL;
 +        int classWalkThreads = 1;
-+        int delayMs = 60000;
++        int delayMs = R0DUMP_DEFAULT_DELAY_MS;
++        volatile long classWalkDeadlineUptimeMs;
 +        int maxMethods;
 +        int maxRecords;
 +        int maxSeconds;
@@ -183,7 +188,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
      @GuardedBy("this")
      private ArrayList<WeakReference<Context>> mDisplaySystemUiContexts;
  
-@@ -4491,6 +4628,8 @@ public final class ActivityThread extends ClientTransactionHandler
+@@ -4491,6 +4633,8 @@ public final class ActivityThread extends ClientTransactionHandler
                  r.mLastReportedWindowingMode = config.windowConfiguration.getWindowingMode();
              }
              r.setState(ON_CREATE);
@@ -192,7 +197,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
  
          } catch (SuperNotCalledException e) {
              throw e;
-@@ -7816,6 +7955,691 @@ public final class ActivityThread extends ClientTransactionHandler
+@@ -7816,6 +7960,714 @@ public final class ActivityThread extends ClientTransactionHandler
          return insInfo.nativeLibraryDir;
      }
  
@@ -273,7 +278,9 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
 +                R0DUMP_CLASS_WALK_LOAD_ALL).trim();
 +        config.classWalkThreads = 1;
 +        config.delayMs = r0dumpParseInt(
-+                r0dumpReadString(context, R0DUMP_SETTING_DELAY_MS, "60000"), 60000, 300000);
++                r0dumpReadString(context, R0DUMP_SETTING_DELAY_MS,
++                        Integer.toString(R0DUMP_DEFAULT_DELAY_MS)),
++                R0DUMP_DEFAULT_DELAY_MS, 300000);
 +        config.maxMethods = r0dumpParseInt(
 +                r0dumpReadString(context, R0DUMP_SETTING_MAX_METHODS, "0"), 0, 1000000);
 +        config.maxRecords = r0dumpParseInt(r0dumpReadString(context,
@@ -500,6 +507,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
 +        }
 +        Thread worker = new Thread(() -> {
 +            boolean completed = false;
++            String failureReason = "class_walk_failed";
 +            try {
 +                if (config.delayMs > 0) {
 +                    r0dumpInvokeDex("r0dumpMarkPhase",
@@ -509,26 +517,46 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
 +                if (generation != mR0DumpConfigGeneration.get()) {
 +                    return;
 +                }
++                final long budgetMs = config.maxSeconds > 0
++                        ? Math.min(R0DUMP_MAX_CLASS_WALK_MS,
++                                Math.max(1000L, config.maxSeconds * 1000L))
++                        : R0DUMP_MAX_CLASS_WALK_MS;
++                config.classWalkDeadlineUptimeMs = SystemClock.uptimeMillis() + budgetMs;
 +                r0dumpInvokeDex("r0dumpMarkPhase",
 +                        new Class<?>[] {String.class}, "class_walk");
 +                completed = r0dumpWalkApplicationDex(app, config, generation);
++                if (!completed && r0dumpWalkExpired(config)) {
++                    failureReason = "class_walk_timeout";
++                }
 +            } catch (InterruptedException ignored) {
 +                Thread.currentThread().interrupt();
++                failureReason = "class_walk_interrupted";
 +            } catch (Throwable t) {
 +                Log.e(R0DUMP_LOG_TAG, "class-walk failed", t);
++                failureReason = "class_walk_exception";
 +            } finally {
 +                if (generation == mR0DumpConfigGeneration.get()
 +                        && mR0DumpProcessConfig == config && config.enabled) {
-+                    r0dumpInvokeDex("r0dumpMarkPhase", new Class<?>[] {String.class},
-+                            completed ? "complete" : "class_walk_failed");
 +                    if (completed) {
++                        r0dumpInvokeDex("r0dumpMarkPhase", new Class<?>[] {String.class},
++                                "complete");
 +                        r0dumpInvokeDex("r0dumpMarkComplete", new Class<?>[0]);
++                    } else {
++                        // A worker that exits early must close the runtime and
++                        // publish a terminal state; otherwise the manager shows
++                        // an old run as permanently "dumping".
++                        r0dumpStopDex(failureReason);
 +                    }
 +                }
 +            }
 +        }, "r0dump-class-walk");
 +        worker.setDaemon(true);
 +        worker.start();
++    }
++
++    private static boolean r0dumpWalkExpired(R0DumpProcessConfig config) {
++        return config == null || (config.classWalkDeadlineUptimeMs > 0
++                && SystemClock.uptimeMillis() >= config.classWalkDeadlineUptimeMs);
 +    }
 +
 +    /** Dump the DEX cookies already owned by a loader for an app/activity trigger. */
@@ -592,7 +620,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
 +        boolean completed = true;
 +        try {
 +            for (ClassLoader loader : loaders) {
-+                if (generation != mR0DumpConfigGeneration.get()) {
++                if (generation != mR0DumpConfigGeneration.get() || r0dumpWalkExpired(config)) {
 +                    completed = false;
 +                    break;
 +                }
@@ -738,7 +766,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
 +        final Set<String> seenClasses = new ArraySet<>();
 +        final boolean loadedOnly = "loaded_only".equals(config.classWalkMode);
 +        for (Object element : (Object[]) rawElements) {
-+            if (generation != mR0DumpConfigGeneration.get()) {
++            if (generation != mR0DumpConfigGeneration.get() || r0dumpWalkExpired(config)) {
 +                return false;
 +            }
 +            if (element == null) {
@@ -796,7 +824,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
 +            return;
 +        }
 +        for (String className : classNames) {
-+            if (generation != mR0DumpConfigGeneration.get()
++            if (generation != mR0DumpConfigGeneration.get() || r0dumpWalkExpired(config)
 +                    || stats.walkedClassCount >= R0DUMP_MAX_CLASS_NAMES
 +                    || (config.maxMethods > 0
 +                            && stats.dumpedMethodCount >= config.maxMethods)) {
@@ -884,7 +912,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
      @UnsupportedAppUsage
      @RavenwoodThrow(comment = "See ActivityThread_ravenwood for initialization on Ravenwood")
      private void handleBindApplication(AppBindData data) {
-@@ -7853,6 +8677,14 @@ public final class ActivityThread extends ClientTransactionHandler
+@@ -7853,6 +8705,14 @@ public final class ActivityThread extends ClientTransactionHandler
          mConfiguration = mConfigurationController.getConfiguration();
          mCompatibilityInfo = data.compatInfo;
  
@@ -899,7 +927,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
          mProfiler = new Profiler();
          String agent = null;
          if (data.initProfilerInfo != null) {
-@@ -8015,6 +8847,13 @@ public final class ActivityThread extends ClientTransactionHandler
+@@ -8015,6 +8875,13 @@ public final class ActivityThread extends ClientTransactionHandler
  
          final IActivityManager mgr = ActivityManager.getService();
          final ContextImpl appContext = ContextImpl.createAppContext(this, data.info);
@@ -913,7 +941,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
          mConfigurationController.updateLocaleListFromAppContext(appContext);
  
          GamePropsSpoofService gamePropsService = GamePropsSpoofService.getInstance();
-@@ -8133,6 +8972,9 @@ public final class ActivityThread extends ClientTransactionHandler
+@@ -8133,6 +9000,9 @@ public final class ActivityThread extends ClientTransactionHandler
              sendMessage(H.SET_CONTENT_CAPTURE_OPTIONS_CALLBACK, data.appInfo.packageName);
  
              mInitialApplication = app;
@@ -923,7 +951,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
              final boolean updateHttpProxy;
              synchronized (this) {
                  updateHttpProxy = mUpdateHttpProxyOnBind;
-@@ -8163,6 +9005,8 @@ public final class ActivityThread extends ClientTransactionHandler
+@@ -8163,6 +9033,8 @@ public final class ActivityThread extends ClientTransactionHandler
              try {
                  timestampApplicationOnCreateNs = SystemClock.uptimeNanos();
                  mInstrumentation.callApplicationOnCreate(app);
@@ -933,7 +961,7 @@ index 0c6afb47a8fedc3e65ca86a4bd6b0221f3f2eda1..5b75e7d595a8c8a33d4f5def7c5d11f4
                  timestampApplicationOnCreateNs = 0;
                  if (!mInstrumentation.onException(app, e)) {
 diff --git a/core/java/android/os/Process.java b/core/java/android/os/Process.java
-index cca05a2526c3f831d9c90a0ef557459cf4471f81..41e6738eaa2867ad1ceb816e3776f32e043f1838 100644
+index cca05a2526c3..41e6738eaa28 100644
 --- a/core/java/android/os/Process.java
 +++ b/core/java/android/os/Process.java
 @@ -27,8 +27,11 @@ import android.annotation.SuppressLint;
@@ -1051,7 +1079,7 @@ index cca05a2526c3f831d9c90a0ef557459cf4471f81..41e6738eaa2867ad1ceb816e3776f32e
      /**
       * @return The advertised memory of the system, as the end user would encounter in a retail
 diff --git a/core/jni/AndroidRuntime.cpp b/core/jni/AndroidRuntime.cpp
-index 3f91922256d7c20827fe656b26cc2cae1c2a804c..cc9b46bf550878ec7c00ec951b8a56df0b10e773 100644
+index 3f91922256d7..cc9b46bf5508 100644
 --- a/core/jni/AndroidRuntime.cpp
 +++ b/core/jni/AndroidRuntime.cpp
 @@ -945,6 +945,11 @@ int AndroidRuntime::startVm(JavaVM** pJavaVM, JNIEnv** pEnv, bool zygote, bool p
@@ -1067,7 +1095,7 @@ index 3f91922256d7c20827fe656b26cc2cae1c2a804c..cc9b46bf550878ec7c00ec951b8a56df
       * Garbage-collection related options.
       */
 diff --git a/core/jni/android_util_Process.cpp b/core/jni/android_util_Process.cpp
-index 62a7d0c83d7408f97b889bde2fc694483c84fff5..7b832a93dc547c6debfe652b6f2d3f66973e0404 100644
+index 62a7d0c83d74..7b832a93dc54 100644
 --- a/core/jni/android_util_Process.cpp
 +++ b/core/jni/android_util_Process.cpp
 @@ -1416,8 +1416,8 @@ static const JNINativeMethod methods[] = {
@@ -1082,7 +1110,7 @@ index 62a7d0c83d7408f97b889bde2fc694483c84fff5..7b832a93dc547c6debfe652b6f2d3f66
          {"sendTgSignalThrows", "(III)V", (void*)android_os_Process_sendTgSignalThrows},
          {"setProcessFrozen", "(IIZ)V", (void*)android_os_Process_setProcessFrozen},
 diff --git a/packages/SystemUI/shared/src/com/android/systemui/shared/system/BlurUtils.java b/packages/SystemUI/shared/src/com/android/systemui/shared/system/BlurUtils.java
-index 61b0e4d9024ff9b82baa0e4c3cc8f088b9b86da4..84bb0730e92009e4ffd15c579f296fa53620ab6f 100644
+index 61b0e4d9024f..84bb0730e920 100644
 --- a/packages/SystemUI/shared/src/com/android/systemui/shared/system/BlurUtils.java
 +++ b/packages/SystemUI/shared/src/com/android/systemui/shared/system/BlurUtils.java
 @@ -29,7 +29,7 @@ public abstract class BlurUtils {
@@ -1095,7 +1123,7 @@ index 61b0e4d9024ff9b82baa0e4c3cc8f088b9b86da4..84bb0730e92009e4ffd15c579f296fa5
      }
  }
 diff --git a/packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java b/packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java
-index 5f23002c4d992b0fa1f143344a09fbac3f350f29..813bd1eeada9c8802b71a9812853a2871ecf971b 100644
+index 5f23002c4d99..813bd1eeada9 100644
 --- a/packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java
 +++ b/packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java
 @@ -601,6 +601,7 @@ public class MediaControlPanel {
@@ -1115,7 +1143,7 @@ index 5f23002c4d992b0fa1f143344a09fbac3f350f29..813bd1eeada9c8802b71a9812853a287
          }
  
 diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/BlurUtils.kt b/packages/SystemUI/src/com/android/systemui/statusbar/BlurUtils.kt
-index bad2d77d2075a2b1e0b8754120c096d00f2cc78c..360bead95ada5c252dd3ad8729f915855a417a02 100644
+index bad2d77d2075..360bead95ada 100644
 --- a/packages/SystemUI/src/com/android/systemui/statusbar/BlurUtils.kt
 +++ b/packages/SystemUI/src/com/android/systemui/statusbar/BlurUtils.kt
 @@ -254,7 +254,7 @@ constructor(
@@ -1128,7 +1156,7 @@ index bad2d77d2075a2b1e0b8754120c096d00f2cc78c..360bead95ada5c252dd3ad8729f91585
      }
  
 diff --git a/packages/SystemUI/src/com/android/systemui/window/data/repository/WindowRootViewBlurRepository.kt b/packages/SystemUI/src/com/android/systemui/window/data/repository/WindowRootViewBlurRepository.kt
-index 0e01ca1588b3481d7fb3756abfefebac660098bc..2395c644372aa7f7b62861101cd065ad6417b7b1 100644
+index 0e01ca1588b3..2395c644372a 100644
 --- a/packages/SystemUI/src/com/android/systemui/window/data/repository/WindowRootViewBlurRepository.kt
 +++ b/packages/SystemUI/src/com/android/systemui/window/data/repository/WindowRootViewBlurRepository.kt
 @@ -172,7 +172,7 @@ constructor(
@@ -1141,7 +1169,7 @@ index 0e01ca1588b3481d7fb3756abfefebac660098bc..2395c644372aa7f7b62861101cd065ad
  
      companion object {
 diff --git a/services/core/java/com/android/server/am/ProcessErrorStateRecord.java b/services/core/java/com/android/server/am/ProcessErrorStateRecord.java
-index 14a1b0e42b4f0b8977a4472ffc76eba35934e422..c6edf3774e1f527f036c7a290c20852b1101f797 100644
+index 14a1b0e42b4f..c6edf3774e1f 100644
 --- a/services/core/java/com/android/server/am/ProcessErrorStateRecord.java
 +++ b/services/core/java/com/android/server/am/ProcessErrorStateRecord.java
 @@ -44,6 +44,7 @@ import android.os.incremental.IIncrementalService;
@@ -1222,7 +1250,7 @@ index 14a1b0e42b4f0b8977a4472ffc76eba35934e422..c6edf3774e1f527f036c7a290c20852b
                      mApp.killLocked("bg anr", ApplicationExitInfo.REASON_ANR,
                              timeoutRecord.getAppExitInfoAnrSubreason(), true);
 diff --git a/services/core/java/com/android/server/logcat/LogcatManagerService.java b/services/core/java/com/android/server/logcat/LogcatManagerService.java
-index 92ac6e2630e8ff788aeb55db84a84a3e7a069b8e..a6d9768c335efc387875a527e2b290075f8b49c3 100644
+index 92ac6e2630e8..a6d9768c335e 100644
 --- a/services/core/java/com/android/server/logcat/LogcatManagerService.java
 +++ b/services/core/java/com/android/server/logcat/LogcatManagerService.java
 @@ -18,6 +18,7 @@ package com.android.server.logcat;

@@ -16,7 +16,7 @@
     <string name="hint_target_package">目标包名，例如 com.example.app</string>
     <string name="hint_target_process">目标进程，留空=主/任意进程，* = 所有进程，或 com.example.app:remote</string>
     <string name="hint_output_root">输出根目录，例如 /sdcard/Download/R0DUMP；留空则写目标 app 私有目录</string>
-    <string name="hint_delay_ms">启动后延迟毫秒，例如 60000</string>
+    <string name="hint_delay_ms">启动后延迟毫秒，例如 10000</string>
     <string name="hint_class_prefix">类名前缀过滤，留空=全部，例如 com.example.</string>
     <string name="hint_max_methods">最多主动 dump 方法数，0=不限</string>
     <string name="check_dump_constructors">dump 构造函数</string>
@@ -47,7 +47,7 @@
     <string name="strategy_dex_load">实验室：DexFile 加载时 dump dex（动态加载 dex 有效）</string>
     <string name="strategy_register_dex">实验室：RegisterDexFile 注册 dex 时 dump（性能敏感）</string>
     <string name="strategy_in_memory_dex">实验室：InMemoryDexClassLoader / ByteBuffer dex dump（推荐用于内存加载壳）</string>
-    <string name="strategy_define_class">实验室：ClassLinker::DefineClass 导出 raw/fixed dex 并补 dump 该类方法（DexProtector 推荐单独验证）</string>
+    <string name="strategy_define_class">实验室：ClassLinker::DefineClass 导出 raw/fixed dex；方法记录由延迟 class-walk 生成（性能敏感，需手动开启）</string>
     <string name="strategy_load_class">实验室：LoadClass 加载类后 dump 该类方法（性能敏感）</string>
     <string name="strategy_resolve_method">实验室：ResolveMethod 方法解析时 dump（高频/高开销）</string>
     <string name="strategy_open_common">实验室：DexFileLoader OpenCommon 打点（dex 打开中心点）</string>
@@ -89,14 +89,14 @@
     <string name="label_trigger_strategies">启动触发点</string>
     <string name="label_recommended_strategies">推荐脱壳点</string>
     <string name="label_original_defaults">原版等价默认项</string>
-    <string name="help_original_defaults">默认勾选保持原版等价路径：等待 Activity 启动、遍历类、抽取普通方法和构造函数，完成后停止。首次测试优先使用这组配置。</string>
+    <string name="help_original_defaults">默认配置优先保证目标 App 能完成启动：等待 Activity、遍历类、抽取普通方法和构造函数，完成后停止。DEFINE_CLASS 属于高级手动策略。</string>
     <string name="label_dex_open_strategies">Dex 打开/注册点</string>
     <string name="label_class_lifecycle_strategies">类生命周期 / linker 点</string>
     <string name="label_hot_execution_strategies">高频执行路径点</string>
     <string name="label_route_audit_strategies">路线审计点</string>
     <string name="label_dangerous_active_strategies">危险主动 invoke 点</string>
     <string name="label_lab_strategies">实验策略（默认关闭）</string>
-    <string name="lab_strategy_hint">建议真机测试顺序：IN_MEMORY_DEX → DEFINE_CLASS → REGISTER_DEX → LOAD_CLASS → RESOLVE_METHOD。\nDexProtector 这类会 patch ART DexFile 并擦 header 的壳优先单独开 DEFINE_CLASS；性能敏感点和路线审计点建议一次只开一个。</string>
+    <string name="lab_strategy_hint">建议真机测试顺序：IN_MEMORY_DEX → DEFINE_CLASS → REGISTER_DEX → LOAD_CLASS → RESOLVE_METHOD。\nDEFINE_CLASS 只在需要捕获类定义时手动开启；它会增加启动期 ART 工作。性能敏感点和路线审计点建议一次只开一个。</string>
     <string name="section_target">1. 目标应用</string>
     <string name="section_output_timing">2. 输出与时机</string>
     <string name="section_status">dump 状态</string>
@@ -148,7 +148,7 @@
     <string name="logcat_display_cleared">已清空日志显示</string>
     <string name="log_advice_in_memory_dex">建议：IN_MEMORY_DEX 适合优先测试内存加载/ByteBuffer dex 场景。</string>
     <string name="log_warn_register_dex">注意：REGISTER_DEX 属于性能敏感策略，建议单独测试。</string>
-    <string name="log_warn_define_class">注意：DEFINE_CLASS 属于性能敏感策略，建议单独测试。</string>
+    <string name="log_warn_define_class">注意：DEFINE_CLASS 属于性能敏感高级策略，可能延长启动时间，建议单独测试。</string>
     <string name="log_warn_load_class">注意：LOAD_CLASS 属于性能敏感策略，建议单独测试。</string>
     <string name="log_warn_resolve_method">警告：RESOLVE_METHOD 是高频/高开销策略，建议最后单独测试。</string>
     <string name="log_warn_resolve_real_invoke">强警告：不建议同时开启 RESOLVE_METHOD 和 REAL_INVOKE，可能明显卡顿并产生重复 dump。</string>
@@ -179,7 +179,7 @@
     <string name="phase_configured">已配置，等待应用启动</string>
     <string name="phase_waiting_delay">正在等待设定的延迟时间</string>
     <string name="phase_class_walk">正在遍历类并写入记录</string>
-    <string name="phase_class_walk_failed">类遍历失败，热路径 dump 仍可继续</string>
+    <string name="phase_class_walk_failed">类遍历失败，当前运行已停止</string>
     <string name="phase_saved">已保存</string>
     <string name="phase_pending_save">待保存</string>
     <string name="phase_complete">已完成</string>

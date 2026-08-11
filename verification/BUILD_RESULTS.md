@@ -1,16 +1,18 @@
 # Verified build and device results
 
-Date: 2026-08-11
+Date: 2026-08-12
 
 ## Full OTA
 
 - Product: `lineage_blossom-trunk_staging-userdebug`
-- Result: `172/172`, exit code 0, 5m59s
+- Result: final `bacon` target completed with exit code 0; all build units were
+  run under a cgroup memory ceiling, with a measured peak of 19.2 GiB and no
+  `oom`/`oom_kill` events
 - VINTF: `COMPATIBLE`
 - ZIP test: all entries passed `unzip -t`
 - OTA: `crDroidAndroid-16.0-20260811-blossom-v12.11.zip`
-- Size: `1,407,907,513` bytes
-- SHA-256: `850ee5547840835ff3179f2538233f7de4a60be30cf11516ec55fd9aaed9d766`
+- Size: `1,407,740,513` bytes
+- SHA-256: `25010572c73afd87ae85d8ee1aec0d4bb718aa239b0c34f6405239978cd9157f`
 
 The OTA binary is not stored in this source repository.
 
@@ -19,11 +21,11 @@ The OTA binary is not stored in this source repository.
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
 | `boot.img` | 67,108,864 | `5f8659835b313f95af1b35b356776fa304a3d12a92ee614be2f7f8fb0b63d8bd` |
-| `recovery.img` | 67,108,864 | `8be92ff85129a153c5aa1d93f2661248f76fbd1c6dd0cfff415f556692eea3f1` |
-| `system.img` | 1,487,642,624 | `e85e1e7f8d9283d3523a8dd45d4f6a37173f3095c234b365fcece7a5b68c6472` |
-| `system_ext.img` | 1,076,813,824 | `3a588e6a5dacadf2bac5dcf71e3fa5b8e9004264d28493ac8a8171568fb4c935` |
-| `vendor.img` | 577,495,040 | `6f1a68e587a09c1fe3c32942ca95a4bfeccd60ed4c28e238b27c1ebe93609cbf` |
-| `R0DUMPManager.apk` | 50,700,656 | `82bfb443bad5696928fdbd5700940b6819838135f91b26cb4180201f995cbd18` |
+| `recovery.img` | 67,108,864 | `efa079b132b6def5b9b239f3cc1629b602e4ff3fb23deef6e63a328db5adaa3f` |
+| `system.img` | 1,487,642,624 | `fe012916c0fc92a69d34be932b05183b74a0ae488bb19916e06c4a085bd348d5` |
+| `system_ext.img` | 1,076,813,824 | `e52aab2f94a06e1d5392ef3a59b2f4174bcc374f1c77fa84bfffe54797828ad0` |
+| `vendor.img` | 577,495,040 | `1397ca93c24432140d969c68aed4c1513fbe7e1d88204a0259f04d3e1f895148` |
+| `R0DUMPManager.apk` | 50,700,656 | `eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48` |
 
 ## Device smoke
 
@@ -38,3 +40,6 @@ The OTA binary is not stored in this source repository.
 - Repaired DEX: 3/3 parsed by Android 16 host `dexdump`
 - Manager completion: terminal `complete` state and global dump enable automatically cleared
 
+The final ZIP is kept outside this source repository. It has passed `unzip -t` and
+the SHA-256 check above; recovery sideload and post-boot verification are recorded
+separately because they require the device-side recovery menu.
