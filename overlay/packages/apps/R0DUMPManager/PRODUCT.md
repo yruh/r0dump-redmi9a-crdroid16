@@ -58,7 +58,9 @@ adb shell 'am start -W --activity-clear-task \
 Lifecycle:
 
 1. `start` persists config, enables `r0dump.dump.enabled`, force-stops the target, and launches it when a launcher entry exists.
-2. `stop` clears `r0dump.dump.enabled` without killing already-running target processes.
+2. `stop` clears `r0dump.dump.enabled`; matching running processes observe the change and
+   close the ART runtime with a terminal `stopped` status, while the target App process
+   itself is not force-killed.
 3. `scan` refreshes the current target output directory.
 4. `repair` scans, repairs standard dex outputs, rebuilds raw `dexdata_*.bin`
    with `methods_raw_*.jsonl` header snapshots, and can directly normalize raw
