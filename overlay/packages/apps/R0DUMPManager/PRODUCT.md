@@ -69,44 +69,12 @@ Lifecycle:
    mirrors real ART method/dex dumps into raw dexdata records for product
    validation; it is intentionally absent from the normal UI.
 
-Smoke helper:
-
-```bash
-tools/r0dump/r0dump_smoke.sh --manager-only
-tools/r0dump/r0dump_smoke.sh --manager-only --install-apk out/target/product/lemonade/system_ext/priv-app/R0DUMPManager/R0DUMPManager.apk
-tools/r0dump/r0dump_smoke.sh --target com.example.target --skip-start --min-dex-entries 1
-tools/r0dump/r0dump_smoke.sh --target com.example.raw --clear-output --require-raw-rebuild
-tools/r0dump/r0dump_smoke.sh --synthetic-raw-rebuild --min-dex-entries 1
-tools/r0dump/r0dump_ui_audit.sh
-tools/r0dump/r0dump_product_check.sh --device --target com.example.target --min-dex-entries 1
-```
-
-The helper validates automation logs, polluted-extra handling, repaired zip magic,
-minimum repaired dex count, raw `dexdata_*.bin` rebuild coverage when requested, ART raw mirror coverage when explicitly requested,
-synthetic raw rebuild coverage for Manager repair, and host `dexdump` readability
-when available. Synthetic raw mode snapshots and restores the relevant
-`Settings.Global` keys so it does not leave `r0dump.synthetic` as the active
-target.
-
-When `--install-apk` is used, the smoke helper installs the supplied Manager
-APK, rereads PackageManager's active `pm path`, streams that active APK back via
-`adb exec-out`, and writes `manager-apk-hash.env`. The gate passes only when the
-active device APK sha256 matches the local APK sha256; this prevents false
-passes where `/system_ext` was synced but the device is still running an older
-updated-system `/data/app` copy.
-
-Smoke records the detected product/device in `device.env`; the maintained device gates are
-OnePlus 9 / `lemonade` and Redmi 9A / `blossom`. It also writes `final-settings.env` and always
-leaves dump, global runtime, raw mirror, and force backfill disabled so repeated
-validation does not accidentally carry expensive hooks into the next run.
-
-`r0dump_product_check.sh` additionally validates the local product contracts:
-Manager/system `Settings.Global` key parity, strategy bit parity across Manager,
-`ActivityThread`, and ART, required docs, and removed dead controls.
-
-`r0dump_ui_audit.sh` captures portrait/landscape screenshots and UI hierarchy,
-then checks key surfaces, NAF nodes, and 44dp clickable touch targets. It is a
-repeatable baseline, not a substitute for final manual visual QA.
+The repository does not ship a generic smoke helper or APK installer. Use the
+automation contract above with an explicitly selected local target, then collect
+`logcat`, `status.json`, DEX counts, repaired ZIP validation, and final settings
+as part of the device-specific test record. This keeps a release checkout from
+silently assuming a target package or a different product (for example, the
+upstream OnePlus 9 `lemonade` build).
 
 Maintainer docs:
 
