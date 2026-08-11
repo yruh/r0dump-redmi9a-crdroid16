@@ -18,6 +18,7 @@ done
 for script in scripts/*.sh; do
   bash -n "$script"
 done
+scripts/test-backup-partitions.sh
 
 forbidden="$(find . -path './.git' -prune -o -type f \
   \( -name '*.apk' -o -name '*.img' -o -name '*.so' -o -name '*.zip' \

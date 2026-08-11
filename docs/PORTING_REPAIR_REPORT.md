@@ -23,6 +23,12 @@ ART 在 class-loading 主线程内同步写 DEX/method 文件，Redmi 9A 上会�
 - Manager 能识别死进程留下的活动状态，显示为 `stopped/process_exit`，并关闭全局开关。
 - 状态中的异步字段不再硬编码；未请求时为 `disabled`，请求但没有安全队列时才为
   `synchronous_fallback`。
+- 安装前复核发现一次历史分区导出经过 ADB 伪终端，二进制 `0A` 被转换为
+  `0D 0A`。6 个镜像已通过可逆流式变换恢复到标准分区大小；恢复文件重新执行
+  正向变换后与原始污染文件逐字节一致，boot/recovery 可拆包，AVB 结构可解析。
+- 新增 `scripts/backup-partitions.sh`，强制使用 `adb exec-out`，并用设备块大小
+  对每个镜像做精确字节数校验；模拟测试覆盖 LF/CRLF 原样传输、额外字节拒绝和
+  失败后 `.partial` 清理。
 
 ## 1. 结论
 
@@ -324,9 +330,15 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 
 ## 12. 备份与回滚
 
-- 刷机前备份仅保存在本地私有存储，约 161 MiB，未放入公开仓库。
-- 包含原 boot、recovery、dtbo、vbmeta/vbmeta_system/vbmeta_vendor、分区哈希、
-  `getprop` 和 `lpdump`。
+- 刷机前备份仅保存在本地私有存储，未放入公开仓库。前一天的干净备份约
+  161 MiB，包含 boot、recovery、dtbo、三级 vbmeta、分区哈希、`getprop` 和
+  `lpdump`。
+- 最后一次刷入前备份曾受 ADB 伪终端 CRLF 转换污染。原始目录已明确标为禁止
+  刷入，恢复副本独立保存，并通过 6/6 SHA-256、标准分区大小、逐字节往返、
+  `unpack_bootimg` 和 AVB 结构检查。
+- 当前 patched boot 的内嵌 hash descriptor 与载荷不一致，这是 root 修补后的
+  既有状态；顶层 vbmeta flags 为 3。回滚时应使用同一套恢复后的 boot/dtbo/vbmeta，
+  不混用其他构建的 AVB 元数据。
 - 最终 OTA 会覆盖 boot、dtbo 和三级 vbmeta，刷入前应保留该备份和与当前
   版本对应的 patched boot。
 - 不完整的第三方 recovery 下载不参与任何回滚或刷入。

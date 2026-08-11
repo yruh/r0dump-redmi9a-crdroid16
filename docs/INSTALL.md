@@ -15,6 +15,22 @@
 4. 校验新 ZIP 的 SHA-256 与 `unzip -t`。
 5. 确认包是本机构建的 `blossom` 产物，不是上游 OnePlus 9 发布包。
 
+## 安全导出分区
+
+在系统已开机且 `su` 可用时执行：
+
+```bash
+ADB_SERIAL=SERIAL scripts/backup-partitions.sh device-backup
+```
+
+脚本使用无伪终端的 `adb exec-out` 导出分区，并把每个文件的实际字节数与
+设备块大小比较，最后生成 `SHA256SUMS`。任何截断、额外输出或终端换行转换
+都会使脚本立即失败并删除 `.partial` 文件。
+
+不要使用 `adb shell -t 'su -c cat /dev/block/...' > boot.img` 导出二进制。
+伪终端会把镜像中的 `0A` 扩展成 `0D 0A`，生成看似有正确 magic、实际不可
+直接刷入的污染文件。
+
 ## Recovery sideload
 
 在 crDroid/AOSP recovery 中选择 **Apply update -> Apply from ADB**，然后：
@@ -54,4 +70,3 @@ adb logcat -b crash -d
 
 回滚时应使用同一版本成套备份的 boot/dtbo/vbmeta 组合，不要混用不同
 构建的 AVB 元数据。不完整的 `.partial` recovery 文件不属于可回滚产物。
-
