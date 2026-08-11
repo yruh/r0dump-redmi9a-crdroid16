@@ -235,22 +235,22 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 | `recovery.img` | 67,108,864 | `efa079b132b6def5b9b239f3cc1629b602e4ff3fb23deef6e63a328db5adaa3f` |
 | `system.img` | 1,487,642,624 | `fe012916c0fc92a69d34be932b05183b74a0ae488bb19916e06c4a085bd348d5` |
 | `system_ext.img` | 1,076,813,824 | `e52aab2f94a06e1d5392ef3a59b2f4174bcc374f1c77fa84bfffe54797828ad0` |
-| `product.img` | 730,292,224 | `a8277a8993fb8c0d6e5e683f7f3f93dc8a384504f39bb56b54e721fa9778518d` |
-| `odm.img` | 1,593,344 | `44e921819ff4e8586e247066e4a44f63f4d35540f1f003ae47e8d4459b9bf444` |
+| `product.img` | 730,292,224 | `5e785cb71968c6cbc40d138f206e5e79d9f0d53f6639020f0ea7451ab911b0db` |
+| `odm.img` | 1,593,344 | `aee4b4832386fc190d7fe2053c7f90abb5e4a322bdb4457e62c1d94ff23cf3b5` |
 | `vendor.img` | 577,495,040 | `1397ca93c24432140d969c68aed4c1513fbe7e1d88204a0259f04d3e1f895148` |
 | `vbmeta.img` | 65,536 | `42a80d539c771fbdbd34f21eb8ac7cbdb9c0b2423aa8550b28a529530c70fc1f` |
-| `vbmeta_system.img` | 65,536 | `1cfcf822558d98fc86a5bc6fd543daf2d7fe4fa2fb5cc0309514c5ad3e815d37` |
-| `vbmeta_vendor.img` | 65,536 | `01b60fe041a2d8d5cd46fdd829356e2e396433661e09d5097182ac87fb59b470` |
+| `vbmeta_system.img` | 65,536 | `23ec72aac5791b81dff6c63c2f373931dd8c91ae4fde748056086f122e17cc95` |
+| `vbmeta_vendor.img` | 65,536 | `d3bb899b5dc0b7e23f48039e95a00e49f0adf9cf315e3d5fdcdcce70dd45f01f` |
 | `R0DUMPManager.apk` | 50,700,656 | `eb5181f1c141892894da66ffccf669f886d4a8c3674a7fa823f23d3043acbf48` |
 
 关键中间产物：
 
 | 产物 | 大小（字节） | SHA-256 |
 | --- | ---: | --- |
-| `framework.jar` | 44,907,511 | `a68d99f957428781621d415bd0aeec6cb2e519bdca040816056631d701fa969c` |
-| `core-libart.jar` | 604,551 | `e17b032937defc0e06939868acbe36f020a45fd4234fb29020524f5410d43d24` |
-| ARM64 `libart.so` | 16,476,744 | `974fc859698463abceaf14b805906149310956e687aa2ef5621ce722da22c9b3` |
-| ARM32 `libart.so` | 10,477,608 | `c3ab4b82e52c1cd759a8cd356b4255d2bf991ab27f0564faee0242936f9052ed` |
+| `framework.jar` | 43,632,410 | `8351a2dfe8f86f2ee07db0b1a4019ab06d266ab8653045513586447341cb7160` |
+| `core-libart.jar` | 599,149 | `37ed70aa58f46a39644f5fdab7e1f1ed7ffe683880d3f6b3df3e6b9f3f5f99a7` |
+| ARM64 `libart.so` | 16,477,624 | `598168455500ff0d0e2abc5a9b9f7f231fc203441b7b26667be4856e8857db5f` |
+| ARM32 `libart.so` | 10,478,152 | `bd69f7d20d6bbd1eda625c9b0828b2a6577d684b457842f393cb636c739e67a1` |
 
 ## 8. 已执行验证
 
