@@ -19,11 +19,15 @@
 
 ## 为什么有多个文件夹
 
-输出结构是：
+唯一输出结构是：
 
 ```text
-<output-root>/<package>/<run_id>/<process>/
+/sdcard/Download/R0DUMP/<package>/<run_id>/<process>/
 ```
+
+ART 不接受自定义输出根，也不使用备用目录。Download 无法创建或写入时，
+当前运行会停止并记录 `download_output_unavailable`，不会把文件写到
+`Android/data`、应用私有目录或 `/data/local/tmp`。
 
 多个目录通常来自：
 
@@ -43,6 +47,7 @@
 - `waiting_delay`：等待设定的延迟。
 - `class_walk`：主动遍历进行中。
 - `complete`：完成并已收敛。
+- `stopped`：已停止；结合 `stop_reason` 区分手动停止、超时或进程退出。
 - `stopped_by_limit`：达到记录或时间上限。
 - `class_walk_failed`：遍历失败，当前运行已停止；查看 `stop_reason` 和 logcat。
 
@@ -52,9 +57,11 @@
 ## DEX 041 与 CompactDex
 
 Android 16 正常应用路径为标准 DEX 或 DEX 041 共享容器。Manager 能保留
-DEX 041 的 entry 边界，应用 method records 后重算 SHA-1 和 Adler32。本次真机
-闭环中 `nonstandard_dex_methods_skipped=0`，因此旧 CompactDex 转换器不是当前
-端口的必要条件。
+DEX 041 的 entry 边界，应用 method records 后重算 SHA-1 和 Adler32。
+App Cloner 最终回归中 `nonstandard_dex_methods_skipped=804`；该计数表示 ART 遇到了
+不适合安全回填的非标准方法形态，不等于 7 个输出文件都是 CompactDex。
+实际修复产物中 5/5 DEX 均通过 `dexdump`。完整 CompactDex 转换仍未实现，
+但它不阻塞当前 Android 16 / App Cloner 闭环。
 
 ## 资源上限
 

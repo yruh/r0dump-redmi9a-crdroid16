@@ -15,7 +15,7 @@
     <string name="label_select_target_app">选择目标应用</string>
     <string name="hint_target_package">目标包名，例如 com.example.app</string>
     <string name="hint_target_process">目标进程，留空=主/任意进程，* = 所有进程，或 com.example.app:remote</string>
-    <string name="hint_output_root">输出根目录，例如 /sdcard/Download/R0DUMP；留空则写目标 app 私有目录</string>
+    <string name="hint_output_root">固定输出根目录：/sdcard/Download/R0DUMP</string>
     <string name="hint_delay_ms">启动后延迟毫秒，例如 10000</string>
     <string name="hint_class_prefix">类名前缀过滤，留空=全部，例如 com.example.</string>
     <string name="hint_max_methods">最多主动 dump 方法数，0=不限</string>
@@ -101,10 +101,10 @@
     <string name="section_output_timing">2. 输出与时机</string>
     <string name="section_status">dump 状态</string>
     <string name="section_paths">路径模型</string>
-    <string name="help_output_pipeline">默认输出由系统托管：R0DUMP 热路径先写目标 app 的外部私有工作目录，类遍历完成或达到限制后，再统一导出一份到 Download/R0DUMP。</string>
+    <string name="help_output_pipeline">R0DUMP 的全部运行产物直接写入 /sdcard/Download/R0DUMP/&lt;包名&gt;/&lt;运行编号&gt;/&lt;进程&gt;，不再回退到任何私有目录。</string>
     <string name="help_strategy_default">下面都是实验策略。请在默认路径确认可用后，再一次开启一个点或一个分组。</string>
-    <string name="help_status_pipeline">状态页读取已导出的 _r0dump_status.json 或 r0dump_status.json。如果还没有导出状态，等待 class-walk 完成、达到限制停止，或用 [R0DUMP] tag 查看 logcat。</string>
-    <string name="help_paths">工作目录：目标 app 外部私有 files/r0dump/&lt;process&gt;。\n公开导出：/sdcard/Download/R0DUMP/&lt;process&gt;。\nManager 修补默认应使用 dump 完成后的公开导出路径。</string>
+    <string name="help_status_pipeline">状态页直接读取 Download/R0DUMP 中当前应用的运行目录。如果尚无状态，等待 class-walk 完成、达到限制停止，或用 [R0DUMP] tag 查看 logcat。</string>
+    <string name="help_paths">唯一输出目录：/sdcard/Download/R0DUMP/&lt;包名&gt;/&lt;运行编号&gt;/&lt;进程&gt;。\nManager 直接扫描并修复这个公共目录。</string>
     <string name="help_repair_inputs">修复页跟随当前选择的应用。扫描该应用导出目录后，R0DUMP 会读取目录内 methods_*.jsonl，按 dex key 匹配回填对应 dex，去重后打包 zip。</string>
     <string name="button_preset_original">使用原版默认</string>
     <string name="button_preset_dynamic_dex">动态 dex 预设</string>
@@ -116,7 +116,7 @@
     <string name="button_scan_output">扫描输出</string>
     <string name="button_scan_current_app">扫描当前应用</string>
     <string name="button_refresh_status">刷新 dump 状态</string>
-    <string name="button_export_output">导出当前 bin 目录到 Download/R0DUMP</string>
+    <string name="button_export_output">打开 Download/R0DUMP 产物</string>
     <string name="label_dump_status">dump 状态</string>
     <string name="label_one_click_repair">一键修补</string>
     <string name="label_dump_dex_path">dump dex 路径</string>
@@ -157,7 +157,7 @@
     <string name="log_dump_stopped">已停止 dump 开关。已运行的目标进程不会被自动杀掉。</string>
     <string name="log_scan_done">扫描完成: dex=%1$d, records=%2$d, dir=%3$s</string>
     <string name="status_read_failed">读取失败: %1$s: %2$s</string>
-    <string name="status_not_found">未发现 R0DUMP 状态 JSON。若输出在目标私有目录，可能需要 adb/root 导出。</string>
+    <string name="status_not_found">未在 Download/R0DUMP 的当前运行目录中发现 R0DUMP 状态 JSON。</string>
     <string name="status_not_refreshed">尚未刷新。</string>
     <string name="status_waiting_for_file">等待状态文件生成。</string>
     <string name="status_source">状态文件: %1$s</string>
@@ -187,11 +187,11 @@
     <string name="phase_unknown">未知</string>
     <string name="status_empty_value">无</string>
     <string name="path_unknown_until_target">选择目标包名后确定</string>
-    <string name="path_summary">预计工作路径: %1$s\n预计公开导出: %2$s</string>
+    <string name="path_summary">固定输出路径: %1$s</string>
     <string name="log_status_refreshed">状态已刷新</string>
     <string name="log_current_bin_not_dir">当前 bin 路径不是目录: %1$s</string>
     <string name="log_export_done">导出完成: %1$s</string>
-    <string name="log_export_failed">导出失败: %1$s；如果源目录在 /data/data/&lt;target&gt;，可能被 SELinux 限制。</string>
+    <string name="log_export_failed">导出失败: %1$s；请检查 Download/R0DUMP 是否可用且可写。</string>
     <string name="log_launch_entry_missing">找不到启动入口: %1$s</string>
     <string name="log_launched">已启动: %1$s</string>
     <string name="log_force_stopped">已强停: %1$s</string>

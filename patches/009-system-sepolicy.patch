@@ -1,3 +1,19 @@
+diff --git a/private/untrusted_app_all.te b/private/untrusted_app_all.te
+index 99a7adf8fc6d1123533c38d564764be7a0fe933b..c4d6a0abd3ed85029df8956b1fba963daac45c45 100644
+--- a/private/untrusted_app_all.te
++++ b/private/untrusted_app_all.te
+@@ -75,6 +75,11 @@ allow untrusted_app_all system_app_data_file:file { read write getattr };
+ allow untrusted_app_all media_rw_data_file:dir create_dir_perms;
+ allow untrusted_app_all media_rw_data_file:file create_file_perms;
+ 
++# R0DUMP-selected apps receive a private pass-through storage mount from
++# StorageManagerService. Allow those processes to traverse its mount root.
++allow untrusted_app_all mnt_pass_through_file:dir search;
++allow untrusted_app_all mnt_pass_through_file:lnk_file { read getattr };
++
+ # allow cts to query all services
+ allow untrusted_app_all servicemanager:service_manager list;
+ 
 diff --git a/tests/policy.py b/tests/policy.py
 index cf93ed7a140f9118ac0b41d2c772aa0ef2781f56..004edd78885ae7d4d0198aebca5978cf1a82d9c5 100644
 --- a/tests/policy.py

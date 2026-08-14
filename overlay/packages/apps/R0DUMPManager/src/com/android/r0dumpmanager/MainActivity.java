@@ -101,7 +101,6 @@ public class MainActivity extends ComponentActivity {
     private static final String R0DUMP_SETTING_RUN_ID = "r0dump.dump.run_id";
     private static final String EXTRA_R0DUMP_ACTION = "r0dump_action";
     private static final String EXTRA_R0DUMP_TARGET_PACKAGE = "r0dump_target_package";
-    private static final String EXTRA_R0DUMP_OUTPUT_ROOT = "r0dump_output_root";
     private static final String EXTRA_R0DUMP_TARGET_PROCESS = "r0dump_target_process";
     private static final String EXTRA_R0DUMP_RAW_MIRROR = "r0dump_raw_mirror";
     private static final String EXTRA_R0DUMP_FINISH = "r0dump_finish";
@@ -615,11 +614,6 @@ public class MainActivity extends ComponentActivity {
             mConfig.targetPackage = pkg;
             changed = true;
         }
-        String outputRoot = cleanAutomationExtra(intent.getStringExtra(EXTRA_R0DUMP_OUTPUT_ROOT));
-        if (!outputRoot.isEmpty()) {
-            mConfig.outputRoot = outputRoot;
-            changed = true;
-        }
         if (intent.hasExtra(EXTRA_R0DUMP_TARGET_PROCESS)) {
             String targetProcess = cleanAutomationExtra(
                     intent.getStringExtra(EXTRA_R0DUMP_TARGET_PROCESS));
@@ -715,7 +709,7 @@ public class MainActivity extends ComponentActivity {
         UiConfig out = in != null ? in.copy() : new UiConfig();
         out.targetPackage = text(out.targetPackage);
         out.targetProcess = text(out.targetProcess);
-        out.outputRoot = nonEmpty(out.outputRoot, DEFAULT_OUTPUT_ROOT);
+        out.outputRoot = DEFAULT_OUTPUT_ROOT;
         out.delayMs = nonEmpty(out.delayMs, DEFAULT_DELAY_MS);
         out.classPrefix = text(out.classPrefix);
         out.maxMethods = nonEmpty(out.maxMethods, "0");
@@ -1030,7 +1024,7 @@ public class MainActivity extends ComponentActivity {
         String targetPackage = Settings.Global.getString(getContentResolver(), R0DUMP_SETTING_TARGET_PACKAGE);
         loaded.targetPackage = loaded.globalRuntime && "*".equals(targetPackage)
                 ? "" : text(targetPackage);
-        loaded.outputRoot = Settings.Global.getString(getContentResolver(), R0DUMP_SETTING_OUTPUT_ROOT);
+        loaded.outputRoot = DEFAULT_OUTPUT_ROOT;
         loaded.delayMs = Settings.Global.getString(getContentResolver(), R0DUMP_SETTING_DELAY_MS);
         loaded.targetProcess = Settings.Global.getString(getContentResolver(), R0DUMP_SETTING_TARGET_PROCESS);
         loaded.classPrefix = Settings.Global.getString(getContentResolver(), R0DUMP_SETTING_CLASS_PREFIX);
@@ -1127,7 +1121,7 @@ public class MainActivity extends ComponentActivity {
         mConfig = copyConfig(mConfig);
         boolean globalRuntimeEnabled = mConfig.globalRuntime;
         String pkg = globalRuntimeEnabled ? "*" : packageName();
-        String output = nonEmpty(mConfig.outputRoot, DEFAULT_OUTPUT_ROOT);
+        String output = DEFAULT_OUTPUT_ROOT;
         String delay = nonEmpty(mConfig.delayMs, DEFAULT_DELAY_MS);
         String targetProcess = text(mConfig.targetProcess);
         String classPrefix = text(mConfig.classPrefix);
@@ -1406,8 +1400,8 @@ public class MainActivity extends ComponentActivity {
         new Thread(() -> {
             boolean launchPosted = false;
             try {
+                prepareDownloadOutputDirectory(launchPkg);
                 applyUiConfig(startConfig);
-                prepareTargetOutputDirectory(launchPkg);
                 String runId = System.currentTimeMillis() + "-"
                         + UUID.randomUUID().toString().substring(0, 8);
                 mActiveRunId = runId;
@@ -1449,6 +1443,9 @@ public class MainActivity extends ComponentActivity {
                     }
                 });
             } catch (Throwable t) {
+                Settings.Global.putInt(getContentResolver(), R0DUMP_SETTING_ENABLED, 0);
+                Settings.Global.putInt(getContentResolver(),
+                        R0DUMP_SETTING_GLOBAL_RUNTIME_ENABLED, 0);
                 log("开始 dump 失败: " + t);
                 if (automation) {
                     Log.e(LOG_TAG, "manager automation start failed", t);
@@ -2068,7 +2065,6 @@ public class MainActivity extends ComponentActivity {
 
     private List<File> candidateStatusSearchDirs() {
         List<File> roots = new ArrayList<>();
-        String outputRoot = nonEmpty(mConfig.outputRoot, DEFAULT_OUTPUT_ROOT);
         String process = text(mConfig.targetProcess);
         String pkg = packageName();
         File currentProject = currentProjectDir();
@@ -2080,20 +2076,10 @@ public class MainActivity extends ComponentActivity {
                 roots.add(new File(currentProject, sanitize(processDir)));
             }
         }
-        if (!outputRoot.isEmpty()) {
-            if (!process.isEmpty() && !"*".equals(process)) {
-                roots.add(new File(outputRoot, sanitize(process)));
-            }
-            if (!pkg.isEmpty()) {
-                roots.add(new File(outputRoot, sanitize(pkg)));
-            }
-        }
-        if (!pkg.isEmpty()) {
+        if (pkg.isEmpty()) {
+            roots.add(new File(DEFAULT_OUTPUT_ROOT));
+        } else {
             roots.add(new File(DEFAULT_OUTPUT_ROOT, sanitize(pkg)));
-            roots.addAll(appPrivateOutputRoots());
-        }
-        if (pkg.isEmpty() && !outputRoot.isEmpty()) {
-            roots.add(new File(outputRoot));
         }
         return roots;
     }
@@ -2171,12 +2157,10 @@ public class MainActivity extends ComponentActivity {
     private String pathSummary() {
         String pkg = packageName();
         String process = text(mConfig.targetProcess);
-        String exported = DEFAULT_OUTPUT_ROOT + "/"
-                + sanitize(!process.isEmpty() && !"*".equals(process) ? process : pkg);
-        String working = pkg.isEmpty()
-                ? getString(R.string.path_unknown_until_target)
-                : "/sdcard/Android/data/" + sanitize(pkg) + "/files/r0dump/<process>";
-        return getString(R.string.path_summary, working, exported);
+        String expected = pkg.isEmpty() ? DEFAULT_OUTPUT_ROOT + "/<package>/<run-id>/<process>"
+                : DEFAULT_OUTPUT_ROOT + "/" + sanitize(pkg) + "/<run-id>/"
+                        + sanitize(!process.isEmpty() && !"*".equals(process) ? process : pkg);
+        return getString(R.string.path_summary, expected);
     }
 
     private boolean isDumpDexFileName(String name) {
@@ -2231,39 +2215,31 @@ public class MainActivity extends ComponentActivity {
         log(getString(R.string.log_force_stopped, pkg));
     }
 
-    /** Prepare the target-owned external files root before ART writes its fallback output. */
-    private void prepareTargetOutputDirectory(String pkg) {
-        if (pkg == null || pkg.isEmpty()) {
-            return;
-        }
-        File root = new File("/sdcard/Android/data/" + sanitize(pkg) + "/files/r0dump");
+    /** Validate the only supported public output root before enabling the runtime. */
+    private void prepareDownloadOutputDirectory(String pkg) throws IOException {
+        File root = pkg == null || pkg.isEmpty()
+                ? new File(DEFAULT_OUTPUT_ROOT)
+                : new File(DEFAULT_OUTPUT_ROOT, sanitize(pkg));
         if (!root.isDirectory() && !root.mkdirs() && !root.isDirectory()) {
-            log("无法预创建目标 App 的私有输出目录: " + root);
+            throw new IOException("无法创建固定下载目录: " + root);
+        }
+        if (!root.canWrite()) {
+            throw new IOException("固定下载目录不可写: " + root);
         }
     }
 
     private List<File> candidateOutputDirs() {
         List<File> roots = new ArrayList<>();
-        String outputRoot = nonEmpty(mConfig.outputRoot, DEFAULT_OUTPUT_ROOT);
-        String process = text(mConfig.targetProcess);
         String pkg = packageName();
         File currentProject = currentProjectDir();
         roots.addAll(projectDirCandidates());
         if (currentProject != null) {
             roots.add(currentProject);
         }
-        if (!outputRoot.isEmpty()) {
-            roots.add(new File(outputRoot));
-            if (!process.isEmpty() && !"*".equals(process)) {
-                roots.add(new File(outputRoot, sanitize(process)));
-            }
-            if (!pkg.isEmpty()) {
-                roots.add(new File(outputRoot, sanitize(pkg)));
-            }
-        }
-        if (!pkg.isEmpty()) {
+        if (pkg.isEmpty()) {
+            roots.add(new File(DEFAULT_OUTPUT_ROOT));
+        } else {
             roots.add(new File(DEFAULT_OUTPUT_ROOT, sanitize(pkg)));
-            roots.addAll(appPrivateOutputRoots());
         }
         return roots;
     }
@@ -2287,39 +2263,21 @@ public class MainActivity extends ComponentActivity {
         return candidates.isEmpty() ? null : candidates.get(0);
     }
 
-    private List<File> appPrivateOutputRoots() {
-        List<File> roots = new ArrayList<>();
-        String pkg = packageName();
-        if (pkg.isEmpty()) {
-            return roots;
-        }
-        String safePackage = sanitize(pkg);
-        roots.add(new File("/sdcard/Android/data/" + safePackage + "/files/r0dump"));
-        roots.add(new File("/data/user/0/" + safePackage + "/files/r0dump"));
-        roots.add(new File("/data/data/" + safePackage + "/files/r0dump"));
-        return roots;
-    }
-
     private List<File> projectDirCandidates() {
         List<File> candidates = new ArrayList<>();
         String pkg = packageName();
         if (pkg.isEmpty()) {
             return candidates;
         }
-        String outputRoot = nonEmpty(mConfig.outputRoot, DEFAULT_OUTPUT_ROOT);
         String runId = nonEmpty(mActiveRunId, text(Settings.Global.getString(
                 getContentResolver(), R0DUMP_SETTING_RUN_ID)));
         String safeRun = runId.isEmpty() || "pending".equals(runId)
                 ? "" : sanitize(runId);
-        List<File> bases = new ArrayList<>();
-        bases.add(new File(outputRoot, sanitize(pkg)));
-        bases.addAll(appPrivateOutputRoots());
-        for (File base : bases) {
-            if (!safeRun.isEmpty()) {
-                candidates.add(new File(base, safeRun));
-            }
-            candidates.add(base);
+        File base = new File(DEFAULT_OUTPUT_ROOT, sanitize(pkg));
+        if (!safeRun.isEmpty()) {
+            candidates.add(new File(base, safeRun));
         }
+        candidates.add(base);
         return candidates;
     }
 

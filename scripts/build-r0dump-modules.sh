@@ -99,6 +99,7 @@ if [[ "$BUILD_MODE" != soong && -f "$BUILD_NINJA_GRAPH" ]]; then
     dexer_heap=$5
     shift 5
     unset USE_CCACHE CCACHE_EXEC
+    export OUT_DIR="${OUT_DIR:-out}"
     export DISABLE_LTO="$disable_lto"
     export R0DUMP_DEXER_HEAP_SIZE="$dexer_heap"
     export LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUTF8=1 PYTHONIOENCODING=UTF-8

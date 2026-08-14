@@ -44,6 +44,7 @@ constexpr uint32_t kStrategyForceBackfillBefore = 1u << 12;
 constexpr uint32_t kStrategyForceBackfillAfter = 1u << 13;
 constexpr size_t kMaxDexExportSize = 512u * 1024u * 1024u;
 constexpr size_t kMaxCodeItemSize = 4u * 1024u * 1024u;
+constexpr char kR0DumpOutputRoot[] = "/sdcard/Download/R0DUMP";
 
 std::mutex gR0DumpMutex;
 std::mutex gR0DumpIoMutex;
@@ -54,7 +55,6 @@ std::string gR0DumpMethodsPath;
 std::atomic<bool> gR0DumpEnabled{false};
 std::atomic<bool> gR0DumpTerminal{false};
 std::atomic<uint32_t> gR0DumpStrategyMask{0u};
-std::string gR0DumpOutputRoot = "/sdcard/Download/R0DUMP";
 std::string gR0DumpPackageName = "unknown";
 std::string gR0DumpProcessName = "unknown";
 std::string gR0DumpRunId = "legacy";
@@ -163,45 +163,21 @@ bool PrepareOutputDir(const std::string& path) {
 }
 
 std::string OutputDir() {
-  std::string root;
   std::string package_name;
   std::string process_name;
   std::string run_id;
   {
     std::lock_guard<std::mutex> lock(gR0DumpMutex);
-    root = gR0DumpOutputRoot;
     package_name = gR0DumpPackageName;
     process_name = gR0DumpProcessName;
     run_id = gR0DumpRunId;
-  }
-  if (root.empty()) {
-    root = "/sdcard/Download/R0DUMP";
   }
   const std::string package_component = Sanitize(package_name);
   const std::string process_component = Sanitize(
       process_name.empty() ? ProcessName() : process_name);
   const std::string run_component = Sanitize(run_id);
-  const std::string configured = root + "/" + package_component + "/" +
+  return std::string(kR0DumpOutputRoot) + "/" + package_component + "/" +
       run_component + "/" + process_component;
-  if (PrepareOutputDir(configured)) {
-    return configured;
-  }
-  // A normal application cannot write Download directly on modern Android.
-  // Prefer its own external/private files area before the legacy shell path.
-  const std::string external_fallback = "/sdcard/Android/data/" + package_component +
-      "/files/r0dump/" + run_component + "/" + process_component;
-  if (PrepareOutputDir(external_fallback)) {
-    return external_fallback;
-  }
-  const std::string data_fallback = "/data/user/0/" + package_component +
-      "/files/r0dump/" + run_component + "/" + process_component;
-  if (PrepareOutputDir(data_fallback)) {
-    return data_fallback;
-  }
-  const std::string legacy_fallback = "/data/local/tmp/R0DUMP/" + package_component +
-      "/" + run_component + "/" + process_component;
-  Mkdirs(legacy_fallback);
-  return legacy_fallback;
 }
 
 uint64_t Fnv1a(const void* data, size_t size) {
@@ -963,11 +939,9 @@ extern "C" void configureR0DumpRuntime(const char* output_root,
                                        uint64_t max_seconds,
                                        bool stop_after_complete) {
   CloseMethodRecordFile();
+  (void)output_root;
   {
     std::lock_guard<std::mutex> lock(gR0DumpMutex);
-    if (output_root != nullptr && output_root[0] != '\0') {
-      gR0DumpOutputRoot = output_root;
-    }
     gR0DumpPackageName = package_name != nullptr ? package_name : "unknown";
     gR0DumpProcessName = process_name != nullptr ? process_name : "unknown";
     gR0DumpRunId = run_id != nullptr && run_id[0] != '\0' ? run_id : "legacy";
@@ -1009,6 +983,18 @@ extern "C" void configureR0DumpRuntime(const char* output_root,
   gR0DumpManifestComponentClasses.store(0u);
   gR0DumpManifestSeedDumped.store(0u);
   gR0DumpTerminal.store(false, std::memory_order_relaxed);
+  const std::string output_dir = OutputDir();
+  if (!PrepareOutputDir(output_dir)) {
+    gR0DumpEnabled.store(false);
+    gR0DumpTerminal.store(true, std::memory_order_relaxed);
+    {
+      std::lock_guard<std::mutex> lock(gR0DumpMutex);
+      gR0DumpStopReason = "download_output_unavailable";
+      gR0DumpPhase = "stopped";
+    }
+    PLOG(ERROR) << "R0DUMP Download output is not writable: " << output_dir;
+    return;
+  }
   gR0DumpEnabled.store(true);
   WriteStatus("configured");
 }
@@ -1029,10 +1015,7 @@ extern "C" void stopR0DumpRuntime(const char* reason) {
 }
 
 extern "C" void configureR0DumpOutputRoot(const char* output_root) {
-  std::lock_guard<std::mutex> lock(gR0DumpMutex);
-  if (output_root != nullptr && output_root[0] != '\0') {
-    gR0DumpOutputRoot = output_root;
-  }
+  (void)output_root;
 }
 
 extern "C" void configureR0DumpForceBackfill(uint64_t max_methods,

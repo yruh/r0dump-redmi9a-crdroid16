@@ -42,13 +42,15 @@ adb sideload out/target/product/blossom/crDroidAndroid-16.0-YYYYMMDD-blossom-v12
 首次跨 ROM 安装通常需要格式化 data；同一源码树的后续更新不应无理由
 重复清数据。加密、签名或分区基线变化时，以 recovery 给出的具体错误为准。
 
-本次 Manager 启动交接修复的已签名包位于源码树之外：
+本次 Download-only 最终修复的已签名包位于源码树之外：
 
 ```text
-crDroidAndroid-16.0-20260812-blossom-v12.11-manager-fix.zip
+crDroidAndroid-16.0-20260815-blossom-v12.11-download-only-final-v2.zip
 ```
 
-它从已验证基线 OTA 生成，只更新 `system_ext`，保持其它分区和传输列表不变。
+它从已验证基线 OTA 生成，更新 `system` 的 ART/framework/SELinux 和
+`system_ext` 的 Manager，保持 boot、recovery、vendor、product、odm、dtbo、
+vbmeta 及各分区 transfer list 不变。
 同一基线上的更新按 **Apply from ADB** 直接 sideload，**不要选择格式化 data**；
 刷入后等待首次开机，再检查 `sys.boot_completed=1` 和 Manager 版本。该包使用本地
 testkey，适用于已解锁的开发机。

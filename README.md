@@ -20,19 +20,23 @@ R0DUMP 在 Redmi 9A (`M2006C3LI` / `dandelion`) 的 crDroid 12.11 / Android 16
 | 架构 | ARM32 + ARM64 ART 均已构建和打包 |
 | R0DUMP | 32/32 个策略位已接入源码与构建图 |
 | 真机 | 启动、Manager、DUMP、自动结束、扫描、Repair、ZIP 闭环通过 |
-| DEX | 3/3 个 DEX/DEX 041 修复结果通过 Android 16 `dexdump` |
+| DEX | App Cloner 导出 7 个 DEX，5/5 个修复结果通过 Android 16 `dexdump` |
 | MTK | Thermal HAL 2.0 稳定，IMS 类加载与 Binder 绑定稳定 |
 
 ### 最新回归修复
 
-Manager 的自动化启动交接已增加目标输出目录预创建和 20 秒 hand-off grace。
-在 Redmi 9A 上用 App Cloner 回归时，`MainActivity` 可以正常打开，写出 7 个
-DEX，`reconstruction_failures=0`。修复 APK 已通过受限内存构建并临时安装验证。
+R0DUMP 现在只使用
+`/sdcard/Download/R0DUMP/<package>/<run-id>/<process>`：ART 忽略外部输出根
+配置，Download 不可写时立即停止，不回退到 `Android/data`、应用私有目录或
+`/data/local/tmp`。framework 只对当前选中的目标进程提供 pass-through 存储挂载，
+SELinux 保持 Enforcing。
 
-完整基线 OTA 仍保留原记录；为避免再次触发主机全局 OOM，修复已另外封装为
-只替换 `system_ext.new.dat.br` 的 system_ext-only OTA。该包已完成签名和数据校验，
-并已在同一台 Redmi 9A 上无清数据 sideload、开机验证；当前系统分区中的 Manager
-已是修复版。
+2026-08-15 在 Redmi 9A 上用 App Cloner 完成最终回归：批次
+`1786743880030-fc0b6400` 只在 Download 写入 7 个 DEX，
+`reconstruction_failures=0`，以 `stopped/max_seconds` 正常收口。Manager 扫描、
+修复和 ZIP 验证均通过，5/5 个修复 DEX 可被 Android 16 `dexdump` 解析。
+最终 OTA 已在同一台手机上无清数据 sideload，系统分区和当前活动 Manager
+均为修复版。
 
 crDroid 官方设备页：<https://crdroid.net/blossom/12>
 

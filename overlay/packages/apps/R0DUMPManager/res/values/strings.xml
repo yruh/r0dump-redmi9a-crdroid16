@@ -15,7 +15,7 @@
     <string name="label_select_target_app">Select target app</string>
     <string name="hint_target_package">Target package, e.g. com.example.app</string>
     <string name="hint_target_process">Target process. Empty = main/any process, * = all processes, or com.example.app:remote</string>
-    <string name="hint_output_root">Output root, e.g. /sdcard/Download/R0DUMP. Empty = target app private directory</string>
+    <string name="hint_output_root">Fixed output root: /sdcard/Download/R0DUMP</string>
     <string name="hint_delay_ms">Startup delay in milliseconds, e.g. 10000</string>
     <string name="hint_class_prefix">Class name prefix filter. Empty = all, e.g. com.example.</string>
     <string name="hint_max_methods">Maximum active dump method count. 0 = unlimited</string>
@@ -101,10 +101,10 @@
     <string name="section_output_timing">2. Output and timing</string>
     <string name="section_status">Dump status</string>
     <string name="section_paths">Path model</string>
-    <string name="help_output_pipeline">Default output is product-managed: R0DUMP writes hot-path files to the target app external-private working directory, then exports one snapshot to Download/R0DUMP when class-walk completes or limits stop runtime.</string>
+    <string name="help_output_pipeline">R0DUMP writes all runtime files directly under /sdcard/Download/R0DUMP/&lt;package&gt;/&lt;run-id&gt;/&lt;process&gt;. No private-directory fallback is used.</string>
     <string name="help_strategy_default">Everything below is experimental. Enable one point or one group at a time after the default profile is confirmed on the target app.</string>
-    <string name="help_status_pipeline">Status is read from exported _r0dump_status.json or r0dump_status.json when available. If no exported status exists yet, wait for class-walk completion, a limit stop, or inspect logcat with tag [R0DUMP].</string>
-    <string name="help_paths">Working directory: target app private external files/r0dump/&lt;process&gt;.\nPublic export: /sdcard/Download/R0DUMP/&lt;process&gt;.\nManager repair should use the public export path after dump finishes.</string>
+    <string name="help_status_pipeline">Status is read directly from the selected run under Download/R0DUMP. If status is not available yet, wait for class-walk completion, a limit stop, or inspect logcat with tag [R0DUMP].</string>
+    <string name="help_paths">Only output root: /sdcard/Download/R0DUMP/&lt;package&gt;/&lt;run-id&gt;/&lt;process&gt;.\nThe Manager scans and repairs this public directory directly.</string>
     <string name="help_repair_inputs">Repair follows the selected app. Scan the app export directory, then R0DUMP reads methods_*.jsonl from that directory, patches matching dex files, removes duplicate outputs, and writes a repaired zip.</string>
     <string name="button_preset_original">Use original defaults</string>
     <string name="button_preset_dynamic_dex">Dynamic dex preset</string>
@@ -116,7 +116,7 @@
     <string name="button_scan_output">Scan output</string>
     <string name="button_scan_current_app">Scan selected app</string>
     <string name="button_refresh_status">Refresh dump status</string>
-    <string name="button_export_output">Export current bin directory to Download/R0DUMP</string>
+    <string name="button_export_output">Open Download/R0DUMP output</string>
     <string name="label_dump_status">Dump status</string>
     <string name="label_one_click_repair">One-click repair</string>
     <string name="label_dump_dex_path">Dump dex path</string>
@@ -157,7 +157,7 @@
     <string name="log_dump_stopped">Dump switch stopped. Already running target processes will not be killed automatically.</string>
     <string name="log_scan_done">Scan complete: dex=%1$d, records=%2$d, dir=%3$s</string>
     <string name="status_read_failed">Read failed: %1$s: %2$s</string>
-    <string name="status_not_found">No R0DUMP status JSON found. If output is in the target private directory, adb/root export may be required.</string>
+    <string name="status_not_found">No R0DUMP status JSON found under Download/R0DUMP for the selected run.</string>
     <string name="status_not_refreshed">Not refreshed yet.</string>
     <string name="status_waiting_for_file">Waiting for the status file.</string>
     <string name="status_source">Status file: %1$s</string>
@@ -187,11 +187,11 @@
     <string name="phase_unknown">Unknown</string>
     <string name="status_empty_value">none</string>
     <string name="path_unknown_until_target">Unknown until target package is selected</string>
-    <string name="path_summary">Expected working path: %1$s\nExpected public export: %2$s</string>
+    <string name="path_summary">Fixed output path: %1$s</string>
     <string name="log_status_refreshed">Status refreshed</string>
     <string name="log_current_bin_not_dir">Current bin path is not a directory: %1$s</string>
     <string name="log_export_done">Export complete: %1$s</string>
-    <string name="log_export_failed">Export failed: %1$s. If the source directory is under /data/data/&lt;target&gt;, SELinux may block access.</string>
+    <string name="log_export_failed">Export failed: %1$s. Check that Download/R0DUMP is available and writable.</string>
     <string name="log_launch_entry_missing">No launch entry found: %1$s</string>
     <string name="log_launched">Launched: %1$s</string>
     <string name="log_force_stopped">Force-stopped: %1$s</string>

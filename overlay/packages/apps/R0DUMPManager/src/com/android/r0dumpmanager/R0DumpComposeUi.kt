@@ -1371,7 +1371,7 @@ private fun ConfigPage(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(uiText("配置", "Config"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         CollapsibleSplicedGroup(title = uiText("输出与时机", "Output and timing"), stateKey = "config.outputTiming", expandedSections = expandedSections) {
-            item("output") { TextFieldItem(uiText("输出目录", "Output directory"), config.outputRoot) { onConfigChange(config.mutate { outputRoot = it }) } }
+            item("output") { PathMetricRow(uiText("输出目录", "Output directory"), config.outputRoot, uiText("固定公共目录", "Fixed public directory")) }
             item("delay") { NumberFieldItem(uiText("延迟 ms", "Delay ms"), config.delayMs) { onConfigChange(config.mutate { delayMs = it }) } }
             item("anrProtection") {
                 SwitchItem(
