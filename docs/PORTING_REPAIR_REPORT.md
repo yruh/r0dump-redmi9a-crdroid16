@@ -318,6 +318,22 @@ force backfill 均关闭，测试延迟 1 秒，最长 20 秒。
 回归结束后已关闭 `r0dump.dump.enabled` 和
 `r0dump.dump.global_runtime_enabled`，并 force-stop 目标 App 和 Manager。
 
+### 6.3 当前已安装 Manager 复验
+
+最终 OTA 刷入且活动 `/data/app` Manager 与系统 APK 哈希对齐后，
+又对同一 Download 批次执行了一次 Manager 自动扫描和 Repair：
+
+- 扫描仍为 `dex=7, records=2`，目录仍为上述 Download 批次；
+- Repair 仍为 7 个输入、5 个修复 DEX、4 条记录应用成功；
+- 复验 ZIP 为 6,770,009 字节，SHA-256 为
+  `b6b611fa22327dbb89da196763cfc8f390be9cb6af4fca36ca898ad587ac5b1f`；
+- 复验 ZIP 的 `unzip -t` 和 5/5 Android 16 `dexdump` 再次通过；
+- 两次 ZIP 中 5 个 DEX 的内容哈希全部相同。整包哈希不同是因为
+  `repair_manifest.json.generated_at` 和 ZIP entry 时间戳会记录每次生成时间，
+  不是修复 DEX 不可重现；
+- 复验前后 `Android/data` 都是修复前的 4 个旧批次，Download 为 1 个
+  当前批次，没有私有目录新输出。
+
 ## 7. 最终构建与产物
 
 源码根目录：`<android-source>/crdroid-16`
@@ -371,7 +387,8 @@ transfer list 与已刷入 v3 逐字节一致。
 | `system_ext.img` 构建产物 | 1,076,809,728 | `a751c4a1572ae85fe9aec11563d4f3c742a5095e78fdcb8f08fa3e4d07187d1a` |
 | OTA `system_ext` raw（按 transfer list 补齐） | 1,076,817,920 | `0633eca263d1fd37b943d0d6c13ace596b496aeee66570cdb237e251a27d6421` |
 | `R0DUMPManager.apk` | 50,696,560 | `dedc8220b63b9b8dc77c0ae5841853f5347386cfacf5127d29e3eafed4a87b77` |
-| App Cloner 修复 ZIP | 6,770,008 | `449dc5698faac70449371ef2d3e8bd1642d518fa589ab50f4455e64317941a0b` |
+| App Cloner 首次闭环修复 ZIP | 6,770,008 | `449dc5698faac70449371ef2d3e8bd1642d518fa589ab50f4455e64317941a0b` |
+| App Cloner 当前 Manager 复验 ZIP | 6,770,009 | `b6b611fa22327dbb89da196763cfc8f390be9cb6af4fca36ca898ad587ac5b1f` |
 
 包内关键组件哈希：`services.jar` 为
 `11e4d602cdcedef40b7615eb077a2741381fe257ded514add8b21cc92d4da64c`，

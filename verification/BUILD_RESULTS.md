@@ -76,6 +76,14 @@ Key installed hashes:
 - Android 16 `dexdump`: 5/5 pass
 - New private-output runs: 0; the four `Android/data` runs predate this fix
 
+The installed final Manager was then used to scan and repair the same run again.
+It again reported `dex=7`, `records=2`, and produced 5 repaired DEX files with
+5/5 `dexdump` passing. The new ZIP is 6,770,009 bytes with SHA-256
+`b6b611fa22327dbb89da196763cfc8f390be9cb6af4fca36ca898ad587ac5b1f`.
+All five DEX content hashes match the first repair exactly. The whole ZIP hash
+changes because `repair_manifest.json.generated_at` and ZIP entry timestamps
+record the generation time.
+
 ## Build controls
 
 - Cached full Ninja graph reused; no unnecessary full ROM rebuild
