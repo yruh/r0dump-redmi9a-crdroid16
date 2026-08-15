@@ -497,9 +497,9 @@ transfer list 与已刷入 v3 逐字节一致。
 - 刷机前备份仅保存在本地私有存储，未放入公开仓库。前一天的干净备份约
   161 MiB，包含 boot、recovery、dtbo、三级 vbmeta、分区哈希、`getprop` 和
   `lpdump`。
-- 最后一次刷入前备份曾受 ADB 伪终端 CRLF 转换污染。原始目录已明确标为禁止
-  刷入，恢复副本独立保存，并通过 6/6 SHA-256、标准分区大小、逐字节往返、
-  `unpack_bootimg` 和 AVB 结构检查。
+- 最后一次刷入前备份曾受 ADB 伪终端 CRLF 转换污染。污染的原始目录已在
+  最终整理时删除，仅保留独立恢复副本；恢复副本已通过 6/6 SHA-256、
+  标准分区大小、逐字节往返、`unpack_bootimg` 和 AVB 结构检查。
 - 当前 patched boot 的内嵌 hash descriptor 与载荷不一致，这是 root 修补后的
   既有状态；顶层 vbmeta flags 为 3。回滚时应使用同一套恢复后的 boot/dtbo/vbmeta，
   不混用其他构建的 AVB 元数据。
